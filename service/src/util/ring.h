@@ -11,18 +11,18 @@ struct util_ring {
     atomic_int head;
     atomic_int tail;
 
-    int size;
+    int length;
 };
 
-static inline int util_ring_setup(struct util_ring *ring, int size) {
-    ring->buffer = (void **)malloc(sizeof(void *) * size);
+static inline int util_ring_setup(struct util_ring *ring, int length) {
+    ring->buffer = (void **)malloc(sizeof(void *) * length);
     
     if (!ring->buffer) {
         perror("Failed to allocate ring");
         return -1;
     }
 
-    ring->size = size;
+    ring->length = length;
 
     atomic_init(&ring->head, 0);
     atomic_init(&ring->tail, 0);
@@ -47,14 +47,14 @@ static inline void *util_ring_get(struct util_ring *ring) {
     }
 
     result = ring->buffer[tail];
-    atomic_store_explicit(&ring->tail, (tail + 1) % ring->size, memory_order_release);
+    atomic_store_explicit(&ring->tail, (tail + 1) % ring->length, memory_order_release);
     
     return result;
 }
 
 static inline int util_ring_put(struct util_ring *ring, void* item) {
     int head = atomic_load_explicit(&ring->head, memory_order_relaxed);
-    int next_head = (head + 1) % ring->size;
+    int next_head = (head + 1) % ring->length;
 
     int tail = atomic_load_explicit(&ring->tail, memory_order_acquire);
 

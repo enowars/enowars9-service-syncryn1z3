@@ -3,6 +3,22 @@
 #include <signal.h>
 #include <stdio.h>
 
+static inline int util_block_signals() {
+    int ret;
+
+    sigset_t set;
+    
+    sigfillset(&set);
+
+    ret = sigprocmask(SIG_BLOCK, &set, NULL);
+    if (ret) {                                           
+        perror("sigprocmask failed");                                                  
+        return ret;
+    }
+
+    return 0;
+}
+
 static inline int util_wait_for_exit() {
     int ret;
 
@@ -14,6 +30,12 @@ static inline int util_wait_for_exit() {
     ret = sigaddset(&set, SIGINT);
     if (ret) {                                           
         perror("sigaddset failed");                                                  
+        return ret;
+    }
+
+    ret = sigprocmask(SIG_BLOCK, &set, NULL);
+    if (ret) {                                           
+        perror("sigprocmask failed");                                                  
         return ret;
     }
 

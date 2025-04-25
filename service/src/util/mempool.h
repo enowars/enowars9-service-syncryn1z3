@@ -16,28 +16,28 @@ struct util_mempool {
     struct util_mempool_item_descriptor *head;
     struct util_mempool_item_descriptor *tail;
 
-    int descriptor_unit_item_size;
+    int descriptor_unit_item_length;
 };
 
-static inline int util_mempool_setup(struct util_mempool *mempool, int size, int count) {
-    int aligned_item_size = sizeof(struct util_mempool_item_descriptor) + size;
-    if (size % sizeof(struct util_mempool_item_descriptor)) {
-        aligned_item_size += sizeof(struct util_mempool_item_descriptor) - (size % sizeof(struct util_mempool_item_descriptor));
+static inline int util_mempool_setup(struct util_mempool *mempool, int length, int count) {
+    int aligned_item_length = sizeof(struct util_mempool_item_descriptor) + length;
+    if (length % sizeof(struct util_mempool_item_descriptor)) {
+        aligned_item_length += sizeof(struct util_mempool_item_descriptor) - (length % sizeof(struct util_mempool_item_descriptor));
     }
 
-    const int total_size = aligned_item_size * count;
-    mempool->descriptor_unit_item_size = aligned_item_size / sizeof(struct util_mempool_item_descriptor);
+    const int total_length = aligned_item_length * count;
+    mempool->descriptor_unit_item_length = aligned_item_length / sizeof(struct util_mempool_item_descriptor);
 
-    mempool->start = (struct util_mempool_item_descriptor *)malloc(total_size);
+    mempool->start = (struct util_mempool_item_descriptor *)malloc(total_length);
 
     if (!mempool->start) {
         perror("Failed to allocate mempool");
         return -1;
     }
 
-    mempool->end = mempool->start + count * mempool->descriptor_unit_item_size;
+    mempool->end = mempool->start + count * mempool->descriptor_unit_item_length;
 
-    for (struct util_mempool_item_descriptor *descriptor = mempool->start; descriptor < mempool->end; descriptor += mempool->descriptor_unit_item_size) {
+    for (struct util_mempool_item_descriptor *descriptor = mempool->start; descriptor < mempool->end; descriptor += mempool->descriptor_unit_item_length) {
         descriptor->mempool = mempool;
     }
 
@@ -54,7 +54,7 @@ static inline int util_mempool_cleanup(struct util_mempool *mempool) {
 }
 
 static inline void *util_mempool_get(struct util_mempool *mempool) {
-    struct util_mempool_item_descriptor *descriptor = mempool->head + mempool->descriptor_unit_item_size;
+    struct util_mempool_item_descriptor *descriptor = mempool->head + mempool->descriptor_unit_item_length;
 
     if (descriptor == mempool->end) {
         descriptor = mempool->start;
@@ -74,7 +74,7 @@ static inline void util_mempool_put(void *item) {
     struct util_mempool_item_descriptor *descriptor = ((struct util_mempool_item_descriptor *)item) - 1;
     struct util_mempool *mempool = descriptor->mempool;
 
-    mempool->tail += mempool->descriptor_unit_item_size;
+    mempool->tail += mempool->descriptor_unit_item_length;
 
     if (mempool->tail == mempool->end) {
         mempool->tail = mempool->start;

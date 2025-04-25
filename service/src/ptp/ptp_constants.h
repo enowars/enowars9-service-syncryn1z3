@@ -1,24 +1,25 @@
 #pragma once
 
 #include <stdint.h>
-
-/*
-    Shifts and masks
-*/
-
-#define PTP_MESSAGE_HEADER_TYPE_MASK 0x0f
-#define PTP_MESSAGE_HEADER_TYPE_SHIFT 0
-#define PTP_MESSAGE_HEADER_MAJOR_SDO_ID_MASK 0xf0
-#define PTP_MESSAGE_HEADER_MAJOR_SDO_ID_SHIFT 4
-#define PTP_MANAGEMENT_ACTION_MASK 0x1f
-#define PTP_MANAGEMENT_ACTION_SHIFT 0
+#include <endian.h>
+#include <arpa/inet.h>
 
 
 /*
     Constants
 */
 
-#define PTP_DEFAULT_UDP_PORT 319
+static const uint8_t ptp_version = 0x12;
+static const uint16_t ptp_sdo_id = 0xffd;
+static const uint8_t ptp_domain = 128;
+
+static const uint16_t ptp_default_port = 319;
+
+static const struct sockaddr_in ptp_default_address = {
+    .sin_family = AF_INET,
+    .sin_addr.s_addr = 0x810100e0, // 224.0.1.129
+    .sin_port = ((ptp_default_port & 0xff) << 8) | ((ptp_default_port & 0xff00) >> 8),
+};
 
 enum ptp_message_type {
     PTP_MESSAGE_TYPE_SYNC = 0x0,
@@ -175,157 +176,3 @@ enum ptp_time_source {
     PTP_TIME_SOURCE_OTHER = 0x90,
     PTP_TIME_SOURCE_INTERNAL_OSCILLATOR= 0xa0,
 };
-
-
-/*
-    General types
-*/
-
-typedef uint64_t ptp_clock_id_t;
-
-struct ptp_port_id {
-    ptp_clock_id_t clock_id;
-    uint16_t port;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_port_id) == 10);
-
-struct ptp_timestamp {
-    uint16_t seconds_high;
-    uint32_t seconds_low;
-    uint32_t nanoseconds;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_timestamp) == 10);
-
-struct ptp_clock_quality {
-    uint8_t clock_class;
-    uint8_t clock_accuracy;
-    uint16_t offset_scaled_log_variance;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_clock_quality) == 4);
-
-
-/*
-    Messages
-*/
-
-struct ptp_message_header {
-    uint8_t major_sdo_id_type;
-    uint8_t version;
-    uint16_t length;
-    uint8_t domain;
-    uint8_t minor_sdo_id;
-    uint16_t flags;
-    uint64_t correction;
-    uint32_t type_specific;
-    struct ptp_port_id port_id;
-    uint16_t sequence_id;
-    uint8_t control;
-    uint8_t log_message_interval;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_message_header) == 34);
-
-struct ptp_sync_message {
-    struct ptp_timestamp origin_timestamp;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_sync_message) == 10);
-
-struct ptp_delay_request_message {
-    struct ptp_timestamp origin_timestamp;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_delay_request_message) == 10);
-
-struct ptp_follow_up_message {
-    struct ptp_timestamp origin_timestamp;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_follow_up_message) == 10);
-
-struct ptp_delay_response_message {
-    struct ptp_timestamp receive_timestamp;
-    struct ptp_port_id requesting_port_id;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_delay_response_message) == 20);
-
-struct ptp_pdelay_request_message {
-    struct ptp_timestamp origin_timestamp;
-    uint8_t reserved[10];
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_pdelay_request_message) == 20);
-
-struct ptp_pdelay_response_message {
-    struct ptp_timestamp receive_timestamp;
-    struct ptp_port_id requesting_port_id;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_pdelay_response_message) == 20);
-
-struct ptp_pdelay_response_follow_up_message {
-    struct ptp_timestamp receive_timestamp;
-    struct ptp_port_id requesting_port_id;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_pdelay_response_follow_up_message) == 20);
-
-struct ptp_announce_message {
-    struct ptp_timestamp origin_timestamp;
-    uint16_t current_utc_offset;
-    uint8_t reserved;
-    uint8_t grandmaster_priority_1;
-    struct ptp_clock_quality grandmaster_clock_quality;
-    uint8_t grandmaster_priority_2;
-    ptp_clock_id_t grandmaster_identity;
-    uint16_t steps_removed;
-    uint8_t time_source;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_announce_message) == 30);
-
-struct ptp_signaling_message {
-    struct ptp_port_id target_port_id;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_signaling_message) == 10);
-
-struct ptp_management_message {
-    struct ptp_port_id target_port_id;
-    uint8_t starting_boundary_hops;
-    uint8_t boundary_hops;
-    uint8_t action;
-    uint8_t reserved;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_management_message) == 14);
-
-
-/*
-    TLVs
-*/
-
-struct ptp_tlv_header {
-    uint16_t type;
-    uint16_t length;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_tlv_header) == 4);
-
-struct ptp_management_tlv {
-    uint16_t management_id;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_management_tlv) == 2);
-
-struct ptp_authetication_tlv {
-    uint8_t spp;
-    uint8_t security_parameter_indicatior;
-    uint32_t key_id;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_authetication_tlv) == 6);

@@ -5,13 +5,14 @@
 #include <pthread.h>
 #include <arpa/inet.h>
 
+#include <common/common_types.h>
 #include <util/mempool.h>
 
 struct socket_config {
     uint16_t port;
 
-    int (*enqueue_callback)(void *user_ptr, uint8_t *buffer, size_t length);
-    int (*dequeue_callback)(void *user_ptr, uint8_t **buffer, size_t *length);
+    int (*enqueue_callback)(void *user_ptr, struct common_message_info *info);
+    int (*dequeue_callback)(void *user_ptr, struct common_message_info **info);
 
     void *user_ptr;
 };
@@ -24,14 +25,7 @@ struct socket_state {
     pthread_t thread;
     volatile bool exit_flag;
 
-    struct {
-        struct sockaddr_in address;
-    } server;
-
-    struct {
-        struct sockaddr_in address;
-        socklen_t address_length;
-    } client;
+    struct sockaddr_in server_address;
 
     struct util_mempool mempool;
 };

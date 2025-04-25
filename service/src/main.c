@@ -1,5 +1,5 @@
 #include <ptp/ptp.h>
-#include <ptp/ptp_protocol.h>
+#include <ptp/ptp_constants.h>
 #include <socket/socket.h>
 #include <util/signal.h>
 
@@ -23,8 +23,11 @@ int main(int argc, char *argv[]) {
     state.ptp.config = &state.config.ptp;
     state.socket.config = &state.config.socket;
 
-    state.config.socket.port = PTP_DEFAULT_UDP_PORT;
+    state.config.ptp.task_interval_nsec = 500000000;
+
+    state.config.socket.port = ptp_default_port;
     state.config.socket.enqueue_callback = ptp_enqueue_message;
+    state.config.socket.dequeue_callback = ptp_dequeue_message;
     state.config.socket.user_ptr = &state.ptp;
 
     ret = ptp_setup(&state.ptp);
