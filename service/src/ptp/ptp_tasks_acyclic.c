@@ -1,7 +1,7 @@
-#include <stdio.h>
 #include <error.h>
 
 #include <ptp/ptp.h>
+#include <ptp/ptp_tasks.h>
 #include <common/common_types.h>
 #include <util/ring.h>
 #include <util/mempool.h>

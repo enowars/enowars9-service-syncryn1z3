@@ -3,7 +3,6 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <endian.h>
-#include <signal.h>
 #include <errno.h>
 #include <sys/signalfd.h>
 #include <sys/epoll.h>
@@ -113,8 +112,11 @@ static void *thread_worker(void *arg) {
     return NULL;
 }
 
-int socket_setup(struct socket_state *state) {
+int socket_setup(struct socket_state *state, struct socket_config *config) {
     int ret;
+
+    memset(state, 0, sizeof(*state));
+    state->config = config;
     
     state->fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (state->fd < 0) {

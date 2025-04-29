@@ -1,44 +1,34 @@
-#include <stdio.h>
-#include <string.h>
-#include <errno.h>
 #include <error.h>
 
 #include <ptp/ptp.h>
+#include <ptp/ptp_helper.h>
+#include <ptp/ptp_tasks.h>
 #include <ptp/ptp_coding.h>
 #include <common/common_types.h>
-#include <util/ring.h>
 #include <util/mempool.h>
+#include <util/time.h>
 
-static int ptp_send_announce(struct ptp_state *state) {   
+static int ptp_task_announce(struct ptp_state *state) {   
     int ret;
+
+    ret = ptp_try_run_task(&state->tasks, &state->tasks.cyclic.announce.task, state->config->announce_interval_s);
+    if (ret) {
+        return 0;
+    }
     
-    struct common_message_info *info = util_mempool_get(&state->mempool);
-    if (!info) {
-        return -ENOMEM;
+    struct common_message_info *info;
+    ret = ptp_get_and_init_message(state, &info);
+    if (ret) {
+        return ret;
     }
 
-    memset(&info->message, 0, sizeof(info->message));
     info->message.type = PTP_MESSAGE_TYPE_ANNOUNCE;
-    info->message.sdo_id = ptp_sdo_id;
-    info->message.domain = ptp_domain;
 
-    ret = ptp_encode_message(info->buffer.data, &info->message, COMMON_BUFFER_SIZE);
-    if (ret < 0) {
-        goto out;
-    }
-
-    info->buffer.length = ret;
-
-    memcpy(&info->address.address, &ptp_default_address, sizeof(ptp_default_address));
-    info->address.length = sizeof(ptp_default_address);
-
-    info->timestamp = 3;
-
-    ret = util_ring_put(&state->tx_ring, info);
+    ret = ptp_encode_and_enqueue_message(state, info);
     if (ret) {
         goto out;
     }
-
+    
     return 0;
 
 out:
@@ -46,12 +36,49 @@ out:
     return ret;
 }
 
-int ptp_run_cyclic_tasks(struct ptp_state *state) {
+static int ptp_task_sync(struct ptp_state *state) {   
     int ret;
 
-    ret = ptp_send_announce(state);
+    ret = ptp_try_run_task(&state->tasks, &state->tasks.cyclic.sync.task, state->config->sync_interval_s);
     if (ret) {
-        error(0, -ret, "Failed to send announcement");
+        return 0;
+    }
+    
+    struct common_message_info *info;
+    ret = ptp_get_and_init_message(state, &info);
+    if (ret) {
+        return ret;
+    }
+
+    info->message.type = PTP_MESSAGE_TYPE_SYNC;
+    info->message.payload.event.timestamp = util_get_time();
+
+    ret = ptp_encode_and_enqueue_message(state, info);
+    if (ret) {
+        goto out;
+    }
+    
+    return 0;
+
+out:
+    util_mempool_put(info);
+    return ret;
+}
+
+int ptp_run_cyclic_tasks(struct ptp_state *state, uint64_t elapsed_time_s) {
+    int ret;
+
+    state->tasks.logical_time_s += elapsed_time_s;
+
+    ret = ptp_task_announce(state);
+    if (ret) {
+        error(0, -ret, "Failed to run announce task");
+        return ret;
+    }
+
+    ret = ptp_task_sync(state);
+    if (ret) {
+        error(0, -ret, "Failed to run sync task");
         return ret;
     }
 

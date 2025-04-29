@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include <ptp/ptp.h>
 #include <ptp/ptp_constants.h>
 #include <socket/socket.h>
@@ -16,26 +18,30 @@ struct main_state {
 };
 
 int main(int argc, char *argv[]) {
+    (void)argc;
+    (void)argv;
+
     int ret;
 
     struct main_state state;
 
-    state.ptp.config = &state.config.ptp;
-    state.socket.config = &state.config.socket;
+    memset(&state, 0, sizeof(state));
 
-    state.config.ptp.task_interval_nsec = 500000000;
+    state.config.ptp.task_interval_s = 1;
+    state.config.ptp.announce_interval_s = 15;
+    state.config.ptp.sync_interval_s = 1;
 
     state.config.socket.port = ptp_default_port;
     state.config.socket.enqueue_callback = ptp_enqueue_message;
     state.config.socket.dequeue_callback = ptp_dequeue_message;
     state.config.socket.user_ptr = &state.ptp;
 
-    ret = ptp_setup(&state.ptp);
+    ret = ptp_setup(&state.ptp, &state.config.ptp);
     if (ret) {
         return ret;
     }
 
-    ret = socket_setup(&state.socket);
+    ret = socket_setup(&state.socket, &state.config.socket);
     if (ret) {
         return ret;
     }

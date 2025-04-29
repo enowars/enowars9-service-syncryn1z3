@@ -30,7 +30,7 @@ struct socket_state {
     struct util_mempool mempool;
 };
 
-int socket_setup(struct socket_state *state);
+int socket_setup(struct socket_state *state, struct socket_config *config);
 int socket_cleanup(struct socket_state *state);
 
 int socket_start(struct socket_state *state);

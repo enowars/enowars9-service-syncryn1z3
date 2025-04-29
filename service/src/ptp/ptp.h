@@ -4,12 +4,16 @@
 #include <stdint.h>
 #include <pthread.h>
 
+#include <ptp/ptp_tasks.h>
 #include <common/common_types.h>
 #include <util/ring.h>
 #include <util/mempool.h>
 
 struct ptp_config {
-    uint64_t task_interval_nsec;
+    uint64_t task_interval_s;
+
+    uint64_t announce_interval_s;
+    uint64_t sync_interval_s;
 };
 
 struct ptp_state {
@@ -24,9 +28,11 @@ struct ptp_state {
     struct util_ring rx_ring;
 
     struct util_mempool mempool;
+
+    struct ptp_tasks tasks;
 };
 
-int ptp_setup(struct ptp_state *state);
+int ptp_setup(struct ptp_state *state, struct ptp_config *config);
 int ptp_cleanup(struct ptp_state *state);
 
 int ptp_start(struct ptp_state *state);

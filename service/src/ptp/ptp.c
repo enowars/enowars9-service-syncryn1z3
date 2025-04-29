@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <time.h>
 #include <errno.h>
@@ -34,8 +35,8 @@ static void *thread_worker(void *arg) {
         return NULL;
     }
 
-    timer_spec.it_interval.tv_sec = state->config->task_interval_nsec / 1000000000UL;
-    timer_spec.it_interval.tv_nsec = state->config->task_interval_nsec % 1000000000UL;
+    timer_spec.it_interval.tv_sec = state->config->task_interval_s;
+    timer_spec.it_interval.tv_nsec = 0;
 
     timer_fd = timerfd_create(CLOCK_MONOTONIC, 0);
     if (timer_fd < 0) {
@@ -84,15 +85,15 @@ static void *thread_worker(void *arg) {
 
         for (int i = 0; i < event_count; ++i) {
             if (events[i].data.fd == timer_fd) {
-                uint64_t elapsed_time;
+                uint64_t elapsed_time_s;
 
-                ret = read(timer_fd, &elapsed_time, sizeof(elapsed_time));
-                if (ret != sizeof(elapsed_time)) {
+                ret = read(timer_fd, &elapsed_time_s, sizeof(elapsed_time_s));
+                if (ret != sizeof(elapsed_time_s)) {
                     perror("read on timer fd failed");
                     continue;
                 }
 
-                ptp_run_cyclic_tasks(state);
+                ptp_run_cyclic_tasks(state, elapsed_time_s);
             } else if (events[i].data.fd == state->event_fd) {
                 uint64_t value;
 
@@ -121,8 +122,11 @@ static void *thread_worker(void *arg) {
     return NULL;
 }
 
-int ptp_setup(struct ptp_state *state) {
+int ptp_setup(struct ptp_state *state, struct ptp_config *config) {
     int ret;
+
+    memset(state, 0, sizeof(*state));
+    state->config = config;
 
     ret = util_ring_setup(&state->tx_ring, COMMON_RING_SIZE);
     if (ret) {

@@ -1,5 +1,4 @@
 #include <endian.h>
-#include <string.h>
 
 #include <ptp/ptp_coding.h>
 
