@@ -51,7 +51,7 @@ static int ptp_task_sync(struct ptp_state *state) {
     }
 
     info->message.type = PTP_MESSAGE_TYPE_SYNC;
-    info->message.payload.event.timestamp = util_get_time();
+    info->message.payload.event.timestamp = util_get_time_ns();
 
     ret = ptp_encode_and_enqueue_message(state, info);
     if (ret) {

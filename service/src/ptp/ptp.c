@@ -211,7 +211,7 @@ int ptp_enqueue_message(void *user_ptr, struct common_message_info *info) {
     int ret;
     struct ptp_state *state = (struct ptp_state *)user_ptr;
 
-    info->timestamp = util_get_time();
+    info->timestamp = util_get_time_ns();
 
     ret = util_ring_put(&state->rx_ring, info);
     if (ret) {
@@ -240,7 +240,7 @@ int ptp_dequeue_message(void *user_ptr, struct common_message_info **info) {
         return -ENODATA;
     }
 
-    (*info)->timestamp = util_get_time();
+    (*info)->timestamp = util_get_time_ns();
 
     return 0;
 }
