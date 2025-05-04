@@ -5,6 +5,7 @@
 #include <ptp/ptp_tasks.h>
 #include <ptp/ptp_coding.h>
 #include <common/common_types.h>
+#include <string.h>
 #include <util/mempool.h>
 #include <util/time.h>
 
@@ -23,6 +24,15 @@ static int ptp_task_announce(struct ptp_state *state) {
     }
 
     info->message.type = PTP_MESSAGE_TYPE_ANNOUNCE;
+
+    info->message.payload.announce.timestamp = util_get_time_ns();
+
+    info->message.payload.announce.grandmaster_priority = state->config->clock_priority;
+    memcpy(&info->message.payload.announce.grandmaster_clock_quality, &state->config->clock_quality, sizeof(state->config->clock_quality));
+    memcpy(&info->message.payload.announce.grandmaster_id, &state->config->port_id.clock_id, sizeof(state->config->port_id.clock_id));
+
+    info->message.payload.announce.steps_removed = 0;
+    info->message.payload.announce.time_source = PTP_TIME_SOURCE_INTERNAL_OSCILLATOR;
 
     ret = ptp_encode_and_enqueue_message(state, info);
     if (ret) {

@@ -32,7 +32,7 @@ int ptp_run_acyclic_tasks(struct ptp_state *state) {
 
     ret = ptp_handle_message(state);
     if (ret) {
-        error(0, -ret, "Failed to send announcement");
+        error(0, -ret, "Failed to run handle message task");
         return ret;
     }
 

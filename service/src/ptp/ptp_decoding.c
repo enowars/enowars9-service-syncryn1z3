@@ -1,9 +1,10 @@
 #include <endian.h>
+#include <string.h>
 
 #include <ptp/ptp_coding.h>
 
 static void ptp_decode_port_id(struct ptp_decoded_port_id *output, struct ptp_encoded_port_id *input) {
-    output->clock_id = htobe64(input->clock_id);
+    memcpy(output->clock_id, input->clock_id, sizeof(input->clock_id));
     output->port = htobe64(input->port);
 }
 
@@ -132,7 +133,7 @@ static int ptp_decode_payload(struct ptp_decoded_message *output, uint8_t **inpu
 
             output->payload.announce.grandmaster_priority = (((uint16_t)payload->grandmaster_priority_1) << 8) | payload->grandmaster_priority_2;
             ptp_decode_clock_quality(&output->payload.announce.grandmaster_clock_quality, &payload->grandmaster_clock_quality);
-            output->payload.announce.grandmaster_identity = be64toh(payload->grandmaster_identity);
+            memcpy(output->payload.announce.grandmaster_id, payload->grandmaster_id, sizeof(payload->grandmaster_id));
 
             output->payload.announce.steps_removed = be16toh(payload->steps_removed);
             output->payload.announce.time_source = (enum ptp_time_source)payload->time_source;

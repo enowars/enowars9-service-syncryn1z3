@@ -16,10 +16,13 @@ static int ptp_get_and_init_message(struct ptp_state *state, struct common_messa
         return -ENOMEM;
     }
 
+    // Possible vuln if ommited
     memset(&(*info)->message, 0, sizeof((*info)->message));
 
     (*info)->message.sdo_id = ptp_sdo_id;
     (*info)->message.domain = ptp_domain;
+
+    memcpy(&(*info)->message.port_id, &state->config->port_id, sizeof(state->config->port_id));
 
     return 0;
 }

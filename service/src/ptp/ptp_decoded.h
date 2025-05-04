@@ -11,7 +11,7 @@
     General types
 */
 
-typedef uint64_t ptp_decoded_clock_id_t;
+typedef uint8_t ptp_decoded_clock_id_t[8];
 
 struct ptp_decoded_port_id {
     ptp_decoded_clock_id_t clock_id;
@@ -21,7 +21,7 @@ struct ptp_decoded_port_id {
 typedef uint64_t ptp_decoded_timestamp_t;
 
 struct ptp_decoded_clock_quality {
-    uint8_t clock_class;
+    enum ptp_clock_class clock_class;
     enum ptp_clock_accuracy clock_accuracy;
     uint16_t offset_scaled_log_variance;
 };
@@ -77,7 +77,7 @@ struct ptp_decoded_announce_message {
 
     uint16_t grandmaster_priority;
     struct ptp_decoded_clock_quality grandmaster_clock_quality;
-    ptp_decoded_clock_id_t grandmaster_identity;
+    ptp_decoded_clock_id_t grandmaster_id;
 
     uint16_t steps_removed;
     enum ptp_time_source time_source;
