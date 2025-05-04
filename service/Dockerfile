@@ -1,23 +1,28 @@
-FROM gcc:13 AS build
+FROM debian:bookworm-slim AS build
 
 WORKDIR /service
 
-# Copy source files into the build container
-COPY src .
+# Install build dependencies
+RUN apt-get update && apt-get install -y build-essential cmake libcap2-bin && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Compile using make
-RUN make
+# Copy sources
+COPY CMakeLists.txt .
+COPY src src
+
+# Compile using cmake
+RUN cmake -S . -B build && cmake --build build
+RUN setcap CAP_NET_BIND_SERVICE+ep build/bin/ptp-master
 
 
-# Use a suitable base-image.
-FROM alpine
+# Use a suitable base-image
+FROM debian:bookworm-slim
 
-# Add glibc
-RUN apk add gcompat
+# Add runtime dependencies 
+RUN apt-get update && apt-get install -y tini gosu adduser && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create a seperate user and chown new directories if necessary
 RUN addgroup --system service
-RUN adduser --system --ingroup service --uid 1000 service
+RUN adduser --system --ingroup service --uid 1001 service
 
 # Create our mapped data volume endpoint
 RUN mkdir /data/
@@ -30,11 +35,9 @@ RUN chmod +x /entrypoint.sh
 WORKDIR /service/
 
 # Copy the compiled binary from build stage
-COPY --from=build /service/build/ptp-master .
+COPY --from=build /service/build/bin/ptp-master .
 
 WORKDIR /service/
-# Expose the service's port
-EXPOSE 319
 
 # Run the service
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

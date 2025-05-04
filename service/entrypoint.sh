@@ -6,4 +6,4 @@ set -x
 chown -R service:service "/data/"
 
 # Launch our service as user 'service'
-exec su -s /bin/sh -c './ptp-master' service
+exec gosu service ./ptp-master

@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdio.h>
 
 #include <ptp/ptp.h>
 #include <ptp/ptp_constants.h>
@@ -38,13 +39,18 @@ int main(int argc, char *argv[]) {
     state.config.ptp.clock_quality.offset_scaled_log_variance = 0; // TODO: Fix
 
     state.config.ptp.task_interval_s = 1;
-    state.config.ptp.announce_interval_s = 15;
-    state.config.ptp.sync_interval_s = 1;
+    state.config.ptp.log_announce_interval = 4; // 16s
+    state.config.ptp.log_sync_interval = 0; // 1s
 
     state.config.socket.port = ptp_default_port;
     state.config.socket.enqueue_callback = ptp_enqueue_message;
     state.config.socket.dequeue_callback = ptp_dequeue_message;
     state.config.socket.user_ptr = &state.ptp;
+
+    // Line buffered output
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
+    printf("Starting PTP master\n");
 
     ret = ptp_setup(&state.ptp, &state.config.ptp);
     if (ret) {

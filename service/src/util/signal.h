@@ -26,12 +26,8 @@ static inline int util_wait_for_exit() {
     int signal;
 
     sigemptyset(&set);
-
-    ret = sigaddset(&set, SIGINT);
-    if (ret) {                                           
-        perror("sigaddset failed");                                                  
-        return ret;
-    }
+    sigaddset(&set, SIGINT);
+    sigaddset(&set, SIGTERM);
 
     ret = sigprocmask(SIG_BLOCK, &set, NULL);
     if (ret) {                                           
