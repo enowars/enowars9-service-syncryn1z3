@@ -12,7 +12,7 @@
 static int ptp_task_announce(struct ptp_state *state) {   
     int ret;
 
-    ret = ptp_try_run_task(&state->tasks, &state->tasks.cyclic.announce.task, state->config->announce_interval_s);
+    ret = ptp_try_run_task(&state->tasks, &state->tasks.cyclic.announce.task, state->config->log_announce_interval);
     if (ret) {
         return 0;
     }
@@ -24,6 +24,7 @@ static int ptp_task_announce(struct ptp_state *state) {
     }
 
     info->message.type = PTP_MESSAGE_TYPE_ANNOUNCE;
+    info->message.log_message_interval = state->config->log_announce_interval;
 
     info->message.payload.announce.timestamp = util_get_time_ns();
 
@@ -33,6 +34,8 @@ static int ptp_task_announce(struct ptp_state *state) {
 
     info->message.payload.announce.steps_removed = 0;
     info->message.payload.announce.time_source = PTP_TIME_SOURCE_INTERNAL_OSCILLATOR;
+
+    ptp_set_default_address(info);
 
     ret = ptp_encode_and_enqueue_message(state, info);
     if (ret) {
@@ -49,7 +52,7 @@ out:
 static int ptp_task_sync(struct ptp_state *state) {   
     int ret;
 
-    ret = ptp_try_run_task(&state->tasks, &state->tasks.cyclic.sync.task, state->config->sync_interval_s);
+    ret = ptp_try_run_task(&state->tasks, &state->tasks.cyclic.sync.task, state->config->log_sync_interval);
     if (ret) {
         return 0;
     }
@@ -61,7 +64,11 @@ static int ptp_task_sync(struct ptp_state *state) {
     }
 
     info->message.type = PTP_MESSAGE_TYPE_SYNC;
+    info->message.log_message_interval = state->config->log_sync_interval;
+
     info->message.payload.event.timestamp = util_get_time_ns();
+
+    ptp_set_default_address(info);
 
     ret = ptp_encode_and_enqueue_message(state, info);
     if (ret) {

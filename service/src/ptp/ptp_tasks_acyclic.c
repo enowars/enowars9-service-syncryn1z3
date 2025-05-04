@@ -1,10 +1,46 @@
+#include <errno.h>
 #include <error.h>
 
 #include <ptp/ptp.h>
+#include <ptp/ptp_constants.h>
 #include <ptp/ptp_tasks.h>
+#include <ptp/ptp_helper.h>
 #include <common/common_types.h>
+#include <string.h>
 #include <util/ring.h>
 #include <util/mempool.h>
+
+static int ptp_handle_message_delay_request(struct ptp_state *state, struct common_message_info *request) {
+    int ret;
+    struct common_message_info *response;
+
+    ret = ptp_get_and_init_message(state, &response);
+    if (ret) {
+        return ret;
+    }
+
+    response->message.type = PTP_MESSAGE_TYPE_DELAY_RESPONSE;
+
+    response->message.payload.event.timestamp = request->timestamp;
+    memcpy(&response->message.payload.event.port_id, &request->message.payload.event.port_id, sizeof(request->message.payload.event.port_id));
+
+    memcpy(&response->address, &request->address, sizeof(request->address));
+
+    ret = ptp_encode_and_enqueue_message(state, response);
+    if (ret) {
+        goto out;
+    }
+    
+    return 0;
+
+out:
+    util_mempool_put(response);
+    return ret;
+}
+
+static int ptp_handle_message_management(struct ptp_state *state, struct common_message_info *info) {
+    return 0;
+} 
 
 static int ptp_handle_message(struct ptp_state *state) {   
     int ret;
@@ -20,7 +56,22 @@ static int ptp_handle_message(struct ptp_state *state) {
         goto out;
     }
 
-    ret = 0;
+    switch (info->message.type) {
+        case PTP_MESSAGE_TYPE_DELAY_REQUEST: {
+            ret = ptp_handle_message_delay_request(state, info);
+            break;
+        }
+    
+        case PTP_MESSAGE_TYPE_MANAGEMENT: {
+            ret = ptp_handle_message_management(state, info);
+            break;
+        }
+
+        default: {
+            ret = -EINVAL;
+            break;
+        }
+    }
 
 out:
     util_mempool_put(info);

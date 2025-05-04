@@ -17,8 +17,8 @@ struct ptp_config {
 
     uint64_t task_interval_s;
 
-    uint64_t announce_interval_s;
-    uint64_t sync_interval_s;
+    uint64_t log_announce_interval;
+    uint64_t log_sync_interval;
 };
 
 struct ptp_state {

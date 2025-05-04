@@ -28,8 +28,8 @@ struct ptp_tasks {
     } acyclic;
 };
 
-static inline int ptp_try_run_task(struct ptp_tasks *tasks, struct ptp_task *task, uint64_t target_interval_s) {
-    if (task->last_trigger_time_s + target_interval_s > tasks->logical_time_s) {
+static inline int ptp_try_run_task(struct ptp_tasks *tasks, struct ptp_task *task, uint64_t log_target_interval) {
+    if (task->last_trigger_time_s + (1 << log_target_interval) > tasks->logical_time_s) {
         return -1;
     }
 
