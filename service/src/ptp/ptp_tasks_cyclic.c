@@ -24,6 +24,7 @@ static int ptp_task_announce(struct ptp_state *state) {
     }
 
     info->message.type = PTP_MESSAGE_TYPE_ANNOUNCE;
+    info->message.sequence_id = state->tasks.cyclic.announce.sequence_id++;
     info->message.log_message_interval = state->config->log_announce_interval;
 
     info->message.payload.announce.timestamp = util_get_time_ns();
@@ -64,6 +65,7 @@ static int ptp_task_sync(struct ptp_state *state) {
     }
 
     info->message.type = PTP_MESSAGE_TYPE_SYNC;
+    info->message.sequence_id = state->tasks.cyclic.sync.sequence_id++;
     info->message.log_message_interval = state->config->log_sync_interval;
 
     info->message.payload.event.timestamp = util_get_time_ns();

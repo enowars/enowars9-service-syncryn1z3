@@ -9,7 +9,10 @@
 #include <util/mempool.h>
 
 struct socket_config {
-    uint16_t port;
+    in_addr_t server_address;
+    uint16_t server_port;
+
+    in_addr_t multicast_address;
 
     int (*enqueue_callback)(void *user_ptr, struct common_message_info *info);
     int (*dequeue_callback)(void *user_ptr, struct common_message_info **info);
@@ -25,7 +28,7 @@ struct socket_state {
     pthread_t thread;
     volatile bool exit_flag;
 
-    struct sockaddr_in server_address;
+    struct sockaddr_in address;
 
     struct util_mempool mempool;
 };

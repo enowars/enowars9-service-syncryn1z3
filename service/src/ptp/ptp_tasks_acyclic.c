@@ -22,7 +22,8 @@ static int ptp_handle_message_delay_request(struct ptp_state *state, struct comm
     response->message.type = PTP_MESSAGE_TYPE_DELAY_RESPONSE;
 
     response->message.payload.event.timestamp = request->timestamp;
-    memcpy(&response->message.payload.event.port_id, &request->message.payload.event.port_id, sizeof(request->message.payload.event.port_id));
+    response->message.sequence_id = request->message.sequence_id;
+    memcpy(&response->message.payload.event.port_id, &request->message.port_id, sizeof(request->message.port_id));
 
     memcpy(&response->address, &request->address, sizeof(request->address));
 

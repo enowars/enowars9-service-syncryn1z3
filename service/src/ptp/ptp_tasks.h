@@ -14,10 +14,12 @@ struct ptp_tasks {
     struct {
         struct {
             struct ptp_task task;
+            unsigned int sequence_id;
         } announce;
 
         struct {
             struct ptp_task task;
+            unsigned int sequence_id;
         } sync;
     } cyclic;
 

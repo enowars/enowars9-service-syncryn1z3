@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <endian.h>
 #include <errno.h>
+#include <ifaddrs.h>
 #include <sys/signalfd.h>
 #include <sys/epoll.h>
 #include <arpa/inet.h>
@@ -24,6 +25,7 @@ static int send_message(struct socket_state *state) {
 
     ret = sendto(state->fd, info->buffer.data, info->buffer.length, 0, (const struct sockaddr *)&info->address.address, info->address.length);
     if (ret < 0) {
+        perror("Failed to send message");
         goto out;
     }
 
@@ -48,7 +50,7 @@ static int receive_message(struct socket_state *state) {
 
     info->buffer.length = recvfrom(state->fd, info->buffer.data, COMMON_BUFFER_SIZE, 0, (struct sockaddr *)&info->address.address, &info->address.length);
     if (info->buffer.length < 0) {
-        perror("recvfrom failed");
+        perror("Failed to receive message");
         return -1;
     }
 
@@ -125,13 +127,22 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
         return -1;
     }
 
-    memset(&state->server_address, 0, sizeof(state->server_address));
+    int on = 1;
+    ret = setsockopt(state->fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+    if (ret) {
+        perror("Failed to enable address reuse");
+        close(state->fd);
 
-    state->server_address.sin_family = AF_INET;
-    state->server_address.sin_addr.s_addr = INADDR_ANY;
-    state->server_address.sin_port = htobe16(state->config->port);
+        return ret; 
+    }
 
-    ret = bind(state->fd, (const struct sockaddr *)&state->server_address, sizeof(state->server_address));
+    memset(&state->address, 0, sizeof(state->address));
+
+    state->address.sin_family = AF_INET;
+    state->address.sin_addr.s_addr = INADDR_ANY;
+    state->address.sin_port = htobe16(state->config->server_port);
+
+    ret = bind(state->fd, (const struct sockaddr *)&state->address, sizeof(state->address));
     if (ret) {
         perror("Bind failed");
         close(state->fd);
@@ -139,16 +150,65 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
         return ret; 
     }
 
-    uint8_t ttl = 64;
-    ret = setsockopt(state->fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
+    struct ifaddrs *addresses;
+    struct ifaddrs *address_iter;
+    const char *interface_name;
+    ret = getifaddrs(&addresses);
     if (ret) {
-        perror("setsockopt failed");
+        perror("Failed to get addresses");
         close(state->fd);
 
         return ret; 
     }
 
-    printf("UDP server listening on port %d...\n", state->config->port);
+    for (address_iter = addresses; address_iter != NULL; address_iter = address_iter->ifa_next) {
+        if (address_iter->ifa_addr && AF_INET == address_iter->ifa_addr->sa_family) {
+            if (((struct sockaddr_in*)address_iter->ifa_addr)->sin_addr.s_addr == state->config->server_address) {
+                interface_name = address_iter->ifa_name;
+            }
+        }
+    }
+
+    if (setsockopt(state->fd, SOL_SOCKET, SO_BINDTODEVICE, interface_name, strlen(interface_name))) {
+        perror("Failed to bind to device");
+        close(state->fd);
+
+        return ret; 
+	}
+
+    freeifaddrs(addresses);
+
+    uint8_t ttl = 64;
+    ret = setsockopt(state->fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
+    if (ret) {
+        perror("Failed to set multicast TTL");
+        close(state->fd);
+
+        return ret; 
+    }
+
+    struct ip_mreqn multicast_request;
+    multicast_request.imr_multiaddr.s_addr = state->config->multicast_address;
+    multicast_request.imr_address.s_addr = state->config->server_address;
+    multicast_request.imr_ifindex = 0;
+
+    if (setsockopt(state->fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &multicast_request, sizeof(multicast_request))) {
+        perror("Failed to join multicast group");
+        close(state->fd);
+
+        return ret; 
+    }
+
+    int off = 0;
+    ret = setsockopt(state->fd, IPPROTO_IP, IP_MULTICAST_LOOP, &off, sizeof(off));
+    if (ret) {
+        perror("Failed to disable multicast loop");
+        close(state->fd);
+
+        return ret; 
+    }
+
+    printf("UDP server listening on port %d...\n", state->config->server_port);
 
     ret = util_mempool_setup(&state->mempool, sizeof(struct common_message_info), COMMON_MEMPOOL_SIZE);
     if (ret) {

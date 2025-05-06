@@ -5,7 +5,7 @@
 
 static void ptp_encode_port_id(struct ptp_encoded_port_id *output, struct ptp_decoded_port_id *input) {
     memcpy(output->clock_id, input->clock_id, sizeof(input->clock_id));
-    output->port = be16toh(input->port);
+    output->port = htobe16(input->port);
 }
 
 static void ptp_encode_timestamp(struct ptp_encoded_timestamp *output, ptp_decoded_timestamp_t input) {

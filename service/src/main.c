@@ -35,14 +35,16 @@ int main(int argc, char *argv[]) {
     state.config.ptp.port_id.port = 1;
     state.config.ptp.clock_priority = 0;
     state.config.ptp.clock_quality.clock_class = PTP_CLOCK_CLASS_APPLICATION_SPECIFIC;
-    state.config.ptp.clock_quality.clock_accuracy = PTP_CLOCK_ACCURACY_1_MS;
+    state.config.ptp.clock_quality.clock_accuracy = PTP_CLOCK_ACCURACY_10_MS;
     state.config.ptp.clock_quality.offset_scaled_log_variance = 0; // TODO: Fix
 
     state.config.ptp.task_interval_s = 1;
-    state.config.ptp.log_announce_interval = 4; // 16s
+    state.config.ptp.log_announce_interval = 1; // 2s
     state.config.ptp.log_sync_interval = 0; // 1s
 
-    state.config.socket.port = ptp_default_port;
+    state.config.socket.server_address = inet_addr("10.1.1.11");
+    state.config.socket.server_port = ptp_default_port;
+    state.config.socket.multicast_address = ptp_default_address.sin_addr.s_addr;
     state.config.socket.enqueue_callback = ptp_enqueue_message;
     state.config.socket.dequeue_callback = ptp_dequeue_message;
     state.config.socket.user_ptr = &state.ptp;
