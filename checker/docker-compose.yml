@@ -1,8 +1,6 @@
 services:
-  ptp-service:
+  ptp-checker:
     build: .
-    environment:
-      - INSTANCE_ID=42
     # The code should be copied into the container using COPY.
     # Mount the data folder writable, so that information can be persisted across restarts.
     volumes:
@@ -12,11 +10,11 @@ services:
     #ports:
     #  - "319:319"
     networks:
-      - testing
+      - ptp_service_testing
 
     mem_limit: 1g
     cpus: 1
 
 networks:
-  testing:
-    driver: bridge
+  ptp_service_testing:
+    external: true

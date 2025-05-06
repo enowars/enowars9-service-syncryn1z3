@@ -1,5 +1,7 @@
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include <ptp/ptp.h>
 #include <ptp/ptp_constants.h>
@@ -18,6 +20,45 @@ struct main_state {
     struct socket_state socket;
 };
 
+void usage(const char *program) {
+    fprintf(stderr, "Usage: %s [-a ADDRESS] [-i INDEX]\n", program);
+    exit(EXIT_FAILURE);
+}
+
+void parse_cli(int argc, char *argv[], struct main_config *config) {
+    int opt;
+
+    while ((opt = getopt(argc, argv, "a:i:")) != -1) {
+        switch (opt) {
+            case 'a': {
+                const in_addr_t address = inet_addr(optarg);
+                if (address == (in_addr_t)(-1)) {
+                    fprintf(stderr, "Failed to parse address");
+                    usage(argv[0]);
+                }
+
+                config->socket.server_address = address;
+                break;
+            }
+
+            case 'i': {
+                const int index = atoi(optarg);
+                if (!index) {
+                    fprintf(stderr, "Failed to parse index");
+                    usage(argv[0]);
+                }
+
+                config->ptp.port_id.clock_id[7] = index;
+                break;
+            }
+
+            default: {
+                usage(argv[0]);
+            }
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
@@ -25,6 +66,9 @@ int main(int argc, char *argv[]) {
     int ret;
 
     struct main_state state;
+
+    // Line buffered output
+    setvbuf(stdout, NULL, _IOLBF, 0);
 
     memset(&state, 0, sizeof(state));
 
@@ -42,36 +86,34 @@ int main(int argc, char *argv[]) {
     state.config.ptp.log_announce_interval = 1; // 2s
     state.config.ptp.log_sync_interval = 0; // 1s
 
-    state.config.socket.server_address = inet_addr("10.1.1.11");
     state.config.socket.server_port = ptp_default_port;
     state.config.socket.multicast_address = ptp_default_address.sin_addr.s_addr;
     state.config.socket.enqueue_callback = ptp_enqueue_message;
     state.config.socket.dequeue_callback = ptp_dequeue_message;
     state.config.socket.user_ptr = &state.ptp;
 
-    // Line buffered output
-    setvbuf(stdout, NULL, _IOLBF, 0);
+    parse_cli(argc, argv, &state.config);
 
     printf("Starting PTP master\n");
 
     ret = ptp_setup(&state.ptp, &state.config.ptp);
     if (ret) {
-        return ret;
+        return -ret;
     }
 
     ret = socket_setup(&state.socket, &state.config.socket);
     if (ret) {
-        return ret;
+        return -ret;
     }
 
     ret = ptp_start(&state.ptp);
     if (ret) {
-        return ret;
+        return -ret;
     }
 
     ret = socket_start(&state.socket);
     if (ret) {
-        return ret;
+        return -ret;
     }
 
     util_wait_for_exit();
@@ -80,22 +122,22 @@ int main(int argc, char *argv[]) {
 
     ret = socket_stop(&state.socket);
     if (ret) {
-        return ret;
+        return -ret;
     }
 
     ret = ptp_stop(&state.ptp);
     if (ret) {
-        return ret;
+        return -ret;
     }
 
     ret = socket_cleanup(&state.socket);
     if (ret) {
-        return ret;
+        return -ret;
     }
 
     ret = ptp_cleanup(&state.ptp);
     if (ret) {
-        return ret;
+        return -ret;
     }
 
     return 0;

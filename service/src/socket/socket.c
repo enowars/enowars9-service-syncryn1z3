@@ -131,9 +131,7 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
     ret = setsockopt(state->fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
     if (ret) {
         perror("Failed to enable address reuse");
-        close(state->fd);
-
-        return ret; 
+        goto out;
     }
 
     memset(&state->address, 0, sizeof(state->address));
@@ -145,20 +143,16 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
     ret = bind(state->fd, (const struct sockaddr *)&state->address, sizeof(state->address));
     if (ret) {
         perror("Bind failed");
-        close(state->fd);
-
-        return ret; 
+        goto out; 
     }
 
     struct ifaddrs *addresses;
     struct ifaddrs *address_iter;
-    const char *interface_name;
+    const char *interface_name = NULL;
     ret = getifaddrs(&addresses);
     if (ret) {
         perror("Failed to get addresses");
-        close(state->fd);
-
-        return ret; 
+        goto out; 
     }
 
     for (address_iter = addresses; address_iter != NULL; address_iter = address_iter->ifa_next) {
@@ -169,11 +163,17 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
         }
     }
 
-    if (setsockopt(state->fd, SOL_SOCKET, SO_BINDTODEVICE, interface_name, strlen(interface_name))) {
-        perror("Failed to bind to device");
-        close(state->fd);
+    if (interface_name == NULL) {
+        ret = -ENODEV;
+        goto out;
+    }
 
-        return ret; 
+    ret = setsockopt(state->fd, SOL_SOCKET, SO_BINDTODEVICE, interface_name, strlen(interface_name));
+    if (ret) {
+        perror("Failed to bind to device");
+
+        ret = -1;
+        goto out;
 	}
 
     freeifaddrs(addresses);
@@ -182,9 +182,9 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
     ret = setsockopt(state->fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
     if (ret) {
         perror("Failed to set multicast TTL");
-        close(state->fd);
 
-        return ret; 
+        ret = -1;
+        goto out;
     }
 
     struct ip_mreqn multicast_request;
@@ -192,30 +192,34 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
     multicast_request.imr_address.s_addr = state->config->server_address;
     multicast_request.imr_ifindex = 0;
 
-    if (setsockopt(state->fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &multicast_request, sizeof(multicast_request))) {
+    ret = setsockopt(state->fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &multicast_request, sizeof(multicast_request));
+    if (ret) {
         perror("Failed to join multicast group");
-        close(state->fd);
 
-        return ret; 
+        goto out;
     }
 
     int off = 0;
     ret = setsockopt(state->fd, IPPROTO_IP, IP_MULTICAST_LOOP, &off, sizeof(off));
     if (ret) {
         perror("Failed to disable multicast loop");
-        close(state->fd);
 
-        return ret; 
+        goto out;
     }
 
     printf("UDP server listening on port %d...\n", state->config->server_port);
 
     ret = util_mempool_setup(&state->mempool, sizeof(struct common_message_info), COMMON_MEMPOOL_SIZE);
     if (ret) {
-        return ret; 
+        goto out;
     }
 
     return 0;
+
+out:
+    close(state->fd);
+
+    return ret;
 }
 
 int socket_cleanup(struct socket_state *state) {

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <pthread.h>
 #include <arpa/inet.h>
+#include <linux/netdevice.h>
 
 #include <common/common_types.h>
 #include <util/mempool.h>
@@ -13,6 +14,8 @@ struct socket_config {
     uint16_t server_port;
 
     in_addr_t multicast_address;
+
+    //char interface_name[IFNAMSIZ];
 
     int (*enqueue_callback)(void *user_ptr, struct common_message_info *info);
     int (*dequeue_callback)(void *user_ptr, struct common_message_info **info);
