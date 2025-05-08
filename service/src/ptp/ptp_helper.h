@@ -5,8 +5,8 @@
 #include <errno.h>
 
 #include <ptp/ptp.h>
-#include <ptp/ptp_decoded.h>
-#include <ptp/ptp_constants.h>
+#include <ptp/protocol/ptp_decoded.h>
+#include <ptp/protocol/ptp_constants.h>
 #include <common/common_types.h>
 #include <sys/socket.h>
 #include <util/ring.h>

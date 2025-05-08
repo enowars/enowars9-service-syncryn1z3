@@ -2,10 +2,10 @@
 #include <error.h>
 
 #include <ptp/ptp.h>
-#include <ptp/ptp_constants.h>
-#include <ptp/ptp_tasks.h>
 #include <ptp/ptp_helper.h>
-#include <ptp/ptp_peer.h>
+#include <ptp/protocol/ptp_constants.h>
+#include <ptp/tasks/ptp_tasks.h>
+#include <ptp/peer/ptp_peer.h>
 #include <common/common_types.h>
 #include <string.h>
 #include <util/ring.h>

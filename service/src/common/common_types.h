@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 
-#include <ptp/ptp_coding.h>
+#include <ptp/protocol/ptp_protocol.h>
 
 #define COMMON_RING_SIZE 8
 #define COMMON_MEMPOOL_SIZE 8

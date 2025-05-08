@@ -2,7 +2,7 @@
 
 #include <sqlite3.h>
 
-#include <ptp/ptp_peer.h>
+#include <ptp/peer/ptp_peer.h>
 
 int ptp_peer_db_setup(struct ptp_peer_db *db, const char *filename) {
     int ret;

@@ -4,9 +4,9 @@
 #include <stdint.h>
 #include <pthread.h>
 
-#include <ptp/ptp_tasks.h>
-#include <ptp/ptp_decoded.h>
-#include <ptp/ptp_peer.h>
+#include <ptp/protocol/ptp_protocol.h>
+#include <ptp/tasks/ptp_tasks.h>
+#include <ptp/peer/ptp_peer.h>
 #include <common/common_types.h>
 #include <util/ring.h>
 #include <util/mempool.h>

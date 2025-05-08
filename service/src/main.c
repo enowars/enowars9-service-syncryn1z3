@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 #include <ptp/ptp.h>
-#include <ptp/ptp_constants.h>
+#include <ptp/protocol/ptp_constants.h>
 #include <socket/socket.h>
 #include <util/signal.h>
 

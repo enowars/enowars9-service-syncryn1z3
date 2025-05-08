@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 
-#include <ptp/ptp_decoded.h>
+#include <ptp/protocol/ptp_decoded.h>
 
 struct sqlite3;
 

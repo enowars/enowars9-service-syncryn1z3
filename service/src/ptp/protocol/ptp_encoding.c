@@ -1,7 +1,7 @@
 #include <endian.h>
 #include <string.h>
 
-#include <ptp/ptp_coding.h>
+#include <ptp/protocol/ptp_protocol.h>
 
 static void ptp_encode_port_id(struct ptp_encoded_port_id *output, struct ptp_decoded_port_id *input) {
     memcpy(output->clock_id, input->clock_id, sizeof(input->clock_id));

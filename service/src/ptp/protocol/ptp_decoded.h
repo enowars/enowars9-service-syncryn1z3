@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#include <ptp/ptp_encoded.h>
+#include <ptp/protocol/ptp_encoded.h>
 
 #define PTP_MAX_TLV_COUNT 8
 

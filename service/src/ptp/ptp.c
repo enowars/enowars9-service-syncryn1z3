@@ -1,4 +1,3 @@
-#include "ptp/ptp_peer.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -9,8 +8,8 @@
 #include <sys/epoll.h>
 
 #include <ptp/ptp.h>
-#include <ptp/ptp_coding.h>
-#include <ptp/ptp_tasks.h>
+#include <ptp/protocol/ptp_protocol.h>
+#include <ptp/tasks/ptp_tasks.h>
 #include <common/common_types.h>
 #include <util/signal.h>
 #include <util/time.h>

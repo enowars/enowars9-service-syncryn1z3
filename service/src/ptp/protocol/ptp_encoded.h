@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#include <ptp/ptp_constants.h>
+#include <ptp/protocol/ptp_constants.h>
 
 /*
     Shifts and masks
