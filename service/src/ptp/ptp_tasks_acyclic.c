@@ -14,7 +14,11 @@ static int ptp_handle_message_delay_request(struct ptp_state *state, struct comm
     int ret;
     struct common_message_info *response;
 
-    ret = ptp_get_and_init_message(state, &response);
+    if (request->port_type != COMMON_PORT_TYPE_EVENT) {
+        return -EINVAL;
+    }
+
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT);
     if (ret) {
         return ret;
     }
@@ -23,6 +27,7 @@ static int ptp_handle_message_delay_request(struct ptp_state *state, struct comm
 
     response->message.payload.event.timestamp = request->timestamp;
     response->message.sequence_id = request->message.sequence_id;
+    response->message.flags = PTP_FLAG_UNICAST;
     memcpy(&response->message.payload.event.port_id, &request->message.port_id, sizeof(request->message.port_id));
 
     memcpy(&response->address, &request->address, sizeof(request->address));

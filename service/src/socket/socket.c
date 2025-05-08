@@ -17,13 +17,21 @@ static int send_message(struct socket_state *state) {
     int ret;
     
     struct common_message_info *info;
+    struct socket_instance *instance;
 
     ret = state->config->dequeue_callback(state->config->user_ptr, &info);
     if (ret) {
         return ret;
     }
 
-    ret = sendto(state->fd, info->buffer.data, info->buffer.length, 0, (const struct sockaddr *)&info->address.address, info->address.length);
+    if (info->port_type >= SOCKET_INSTANCE_NUM) {
+        ret = -EINVAL;
+        goto out;
+    }
+
+    instance = &state->instances[info->port_type];
+
+    ret = sendto(instance->fd, info->buffer.data, info->buffer.length, 0, (const struct sockaddr *)&info->address.address, info->address.length);
     if (ret < 0) {
         perror("Failed to send message");
         goto out;
@@ -34,10 +42,10 @@ static int send_message(struct socket_state *state) {
 out:
     util_mempool_put(info);
 
-    return ret;;
+    return ret;
 }
 
-static int receive_message(struct socket_state *state) {
+static int receive_message(struct socket_state *state, struct socket_instance *instance) {
     int ret;
     
     struct common_message_info *info = util_mempool_get(&state->mempool);
@@ -47,8 +55,9 @@ static int receive_message(struct socket_state *state) {
     }
     
     info->address.length = sizeof(info->address.address);
+    info->port_type = instance->port_type;
 
-    info->buffer.length = recvfrom(state->fd, info->buffer.data, COMMON_BUFFER_SIZE, 0, (struct sockaddr *)&info->address.address, &info->address.length);
+    info->buffer.length = recvfrom(instance->fd, info->buffer.data, COMMON_BUFFER_SIZE, 0, (struct sockaddr *)&info->address.address, &info->address.length);
     if (info->buffer.length < 0) {
         perror("Failed to receive message");
         return -1;
@@ -81,13 +90,15 @@ static void *thread_worker(void *arg) {
         exit(EXIT_FAILURE);
     }
 
-    event.events = EPOLLIN;
-    event.data.fd = state->fd;
+    for (int i = 0; i < SOCKET_INSTANCE_NUM; ++i) {
+        event.events = EPOLLIN;
+        event.data.ptr = &state->instances[i];
 
-    ret = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, state->fd, &event);
-    if (ret) {
-        perror("epoll_ctl for socket fd failed");
-        exit(EXIT_FAILURE);
+        ret = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, state->instances[i].fd, &event);
+        if (ret) {
+            perror("epoll_ctl for socket fd failed");
+            exit(EXIT_FAILURE);
+        }
     }
 
     while (!state->exit_flag) {
@@ -100,7 +111,7 @@ static void *thread_worker(void *arg) {
         const int event_count = ret;
 
         if (event_count > 0) {
-            receive_message(state);
+            receive_message(state, event.data.ptr);
         }
 
         send_message(state);
@@ -114,21 +125,18 @@ static void *thread_worker(void *arg) {
     return NULL;
 }
 
-int socket_setup(struct socket_state *state, struct socket_config *config) {
+static int socket_setup_port(struct socket_state *state, struct socket_instance *instance) {
     int ret;
 
-    memset(state, 0, sizeof(*state));
-    state->config = config;
-    
-    state->fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (state->fd < 0) {
+    instance->fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (instance->fd < 0) {
         perror("Socket creation failed");
 
         return -1;
     }
 
     int on = 1;
-    ret = setsockopt(state->fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+    ret = setsockopt(instance->fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
     if (ret) {
         perror("Failed to enable address reuse");
         goto out;
@@ -138,9 +146,9 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
 
     state->address.sin_family = AF_INET;
     state->address.sin_addr.s_addr = INADDR_ANY;
-    state->address.sin_port = htobe16(state->config->server_port);
+    state->address.sin_port = htobe16(instance->port);
 
-    ret = bind(state->fd, (const struct sockaddr *)&state->address, sizeof(state->address));
+    ret = bind(instance->fd, (const struct sockaddr *)&state->address, sizeof(state->address));
     if (ret) {
         perror("Bind failed");
         goto out; 
@@ -168,7 +176,7 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
         goto out;
     }
 
-    ret = setsockopt(state->fd, SOL_SOCKET, SO_BINDTODEVICE, interface_name, strlen(interface_name));
+    ret = setsockopt(instance->fd, SOL_SOCKET, SO_BINDTODEVICE, interface_name, strlen(interface_name));
     if (ret) {
         perror("Failed to bind to device");
 
@@ -179,7 +187,7 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
     freeifaddrs(addresses);
 
     uint8_t ttl = 64;
-    ret = setsockopt(state->fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
+    ret = setsockopt(instance->fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
     if (ret) {
         perror("Failed to set multicast TTL");
 
@@ -192,7 +200,7 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
     multicast_request.imr_address.s_addr = state->config->server_address;
     multicast_request.imr_ifindex = 0;
 
-    ret = setsockopt(state->fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &multicast_request, sizeof(multicast_request));
+    ret = setsockopt(instance->fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &multicast_request, sizeof(multicast_request));
     if (ret) {
         perror("Failed to join multicast group");
 
@@ -200,14 +208,14 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
     }
 
     int off = 0;
-    ret = setsockopt(state->fd, IPPROTO_IP, IP_MULTICAST_LOOP, &off, sizeof(off));
+    ret = setsockopt(instance->fd, IPPROTO_IP, IP_MULTICAST_LOOP, &off, sizeof(off));
     if (ret) {
         perror("Failed to disable multicast loop");
 
         goto out;
     }
 
-    printf("UDP server listening on port %d...\n", state->config->server_port);
+    printf("UDP server listening on port %d...\n", instance->port);
 
     ret = util_mempool_setup(&state->mempool, sizeof(struct common_message_info), COMMON_MEMPOOL_SIZE);
     if (ret) {
@@ -217,17 +225,42 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
     return 0;
 
 out:
-    close(state->fd);
+    close(instance->fd);
 
     return ret;
+}
+
+int socket_setup(struct socket_state *state, struct socket_config *config) {
+    int ret;
+
+    memset(state, 0, sizeof(*state));
+    state->config = config;
+
+    state->instances[COMMON_PORT_TYPE_EVENT].port = state->config->event_port;
+    state->instances[COMMON_PORT_TYPE_EVENT].port_type = COMMON_PORT_TYPE_EVENT;
+    ret = socket_setup_port(state, &state->instances[COMMON_PORT_TYPE_EVENT]);
+    if (ret) {
+        return ret;
+    }
+
+    state->instances[COMMON_PORT_TYPE_MANAGEMENT].port = state->config->management_port;
+    state->instances[COMMON_PORT_TYPE_MANAGEMENT].port_type = COMMON_PORT_TYPE_MANAGEMENT;
+    ret = socket_setup_port(state, &state->instances[COMMON_PORT_TYPE_MANAGEMENT]);
+    if (ret) {
+        return ret;
+    }
+
+    return 0;
 }
 
 int socket_cleanup(struct socket_state *state) {
     int ret;
 
-    ret = close(state->fd);
-    if (ret) {
-        return ret;
+    for (int i = 0; i < SOCKET_INSTANCE_NUM; ++i) {
+        ret = close(state->instances[i].fd);
+        if (ret) {
+            return ret;
+        }
     }
 
     ret = util_mempool_cleanup(&state->mempool);

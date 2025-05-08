@@ -13,13 +13,9 @@ static const uint8_t ptp_version = 0x12;
 static const uint16_t ptp_sdo_id = 0xffd;
 static const uint8_t ptp_domain = 128;
 
-static const uint16_t ptp_default_port = 319;
-
-static const struct sockaddr_in ptp_default_address = {
-    .sin_family = AF_INET,
-    .sin_addr.s_addr = 0x810100e0, // 224.0.1.129
-    .sin_port = ((ptp_default_port & 0xff) << 8) | ((ptp_default_port & 0xff00) >> 8),
-};
+static const in_addr_t ptp_default_address = 0x810100e0; // 224.0.1.129
+static const uint16_t ptp_default_event_port = 319;
+static const uint16_t ptp_default_management_port = 320;
 
 enum ptp_message_type {
     PTP_MESSAGE_TYPE_SYNC = 0x0,

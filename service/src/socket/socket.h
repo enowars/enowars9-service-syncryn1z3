@@ -9,13 +9,14 @@
 #include <common/common_types.h>
 #include <util/mempool.h>
 
+#define SOCKET_INSTANCE_NUM 2 
+
 struct socket_config {
     in_addr_t server_address;
-    uint16_t server_port;
-
     in_addr_t multicast_address;
 
-    //char interface_name[IFNAMSIZ];
+    uint16_t event_port;
+    uint16_t management_port;
 
     int (*enqueue_callback)(void *user_ptr, struct common_message_info *info);
     int (*dequeue_callback)(void *user_ptr, struct common_message_info **info);
@@ -26,7 +27,11 @@ struct socket_config {
 struct socket_state {
     struct socket_config *config;
 
-    int fd;
+    struct socket_instance {
+        int fd;
+        uint16_t port;
+        enum common_port_type port_type;
+    } instances[SOCKET_INSTANCE_NUM];
 
     pthread_t thread;
     volatile bool exit_flag;

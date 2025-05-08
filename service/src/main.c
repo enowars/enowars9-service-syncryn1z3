@@ -86,8 +86,9 @@ int main(int argc, char *argv[]) {
     state.config.ptp.log_announce_interval = 1; // 2s
     state.config.ptp.log_sync_interval = 0; // 1s
 
-    state.config.socket.server_port = ptp_default_port;
-    state.config.socket.multicast_address = ptp_default_address.sin_addr.s_addr;
+    state.config.socket.multicast_address = ptp_default_address;
+    state.config.socket.event_port = ptp_default_event_port;
+    state.config.socket.management_port = ptp_default_management_port;
     state.config.socket.enqueue_callback = ptp_enqueue_message;
     state.config.socket.dequeue_callback = ptp_dequeue_message;
     state.config.socket.user_ptr = &state.ptp;

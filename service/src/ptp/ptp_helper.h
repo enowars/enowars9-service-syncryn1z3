@@ -1,5 +1,6 @@
 #pragma once
 
+#include <endian.h>
 #include <string.h>
 #include <errno.h>
 
@@ -7,10 +8,11 @@
 #include <ptp/ptp_decoded.h>
 #include <ptp/ptp_constants.h>
 #include <common/common_types.h>
+#include <sys/socket.h>
 #include <util/ring.h>
 #include <util/mempool.h>
 
-static int ptp_get_and_init_message(struct ptp_state *state, struct common_message_info **info) {
+static int ptp_get_and_init_message(struct ptp_state *state, struct common_message_info **info, enum common_port_type port_type) {
     *info = (struct common_message_info *)util_mempool_get(&state->mempool);
     if (!info) {
         return -ENOMEM;
@@ -46,7 +48,21 @@ static int ptp_encode_and_enqueue_message(struct ptp_state *state, struct common
     return 0;
 }
 
-static void ptp_set_default_address(struct common_message_info *info) {
-    memcpy(&info->address.address, &ptp_default_address, sizeof(ptp_default_address));
-    info->address.length = sizeof(ptp_default_address);
+static void ptp_set_default_address(struct common_message_info *info, enum common_port_type port_type) {
+    info->address.address.sin_addr.s_addr = ptp_default_address;
+    info->address.address.sin_family = AF_INET;
+
+    switch (port_type) {
+        case COMMON_PORT_TYPE_EVENT: {
+            info->address.address.sin_port = htobe16(ptp_default_event_port);
+            break;
+        }
+
+        case COMMON_PORT_TYPE_MANAGEMENT: {
+            info->address.address.sin_port = htobe16(ptp_default_management_port);
+            break;
+        }
+    }
+
+    info->address.length = sizeof(info->address.address);
 }

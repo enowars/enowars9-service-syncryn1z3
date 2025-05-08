@@ -18,7 +18,7 @@ static int ptp_task_announce(struct ptp_state *state) {
     }
     
     struct common_message_info *info;
-    ret = ptp_get_and_init_message(state, &info);
+    ret = ptp_get_and_init_message(state, &info, COMMON_PORT_TYPE_EVENT);
     if (ret) {
         return ret;
     }
@@ -36,7 +36,7 @@ static int ptp_task_announce(struct ptp_state *state) {
     info->message.payload.announce.steps_removed = 0;
     info->message.payload.announce.time_source = PTP_TIME_SOURCE_INTERNAL_OSCILLATOR;
 
-    ptp_set_default_address(info);
+    ptp_set_default_address(info, COMMON_PORT_TYPE_EVENT);
 
     ret = ptp_encode_and_enqueue_message(state, info);
     if (ret) {
@@ -59,7 +59,7 @@ static int ptp_task_sync(struct ptp_state *state) {
     }
     
     struct common_message_info *info;
-    ret = ptp_get_and_init_message(state, &info);
+    ret = ptp_get_and_init_message(state, &info, COMMON_PORT_TYPE_EVENT);
     if (ret) {
         return ret;
     }
@@ -70,7 +70,7 @@ static int ptp_task_sync(struct ptp_state *state) {
 
     info->message.payload.event.timestamp = util_get_time_ns();
 
-    ptp_set_default_address(info);
+    ptp_set_default_address(info, COMMON_PORT_TYPE_EVENT);
 
     ret = ptp_encode_and_enqueue_message(state, info);
     if (ret) {
