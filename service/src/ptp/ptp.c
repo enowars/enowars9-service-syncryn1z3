@@ -1,3 +1,4 @@
+#include "ptp/ptp_peer.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -143,6 +144,11 @@ int ptp_setup(struct ptp_state *state, struct ptp_config *config) {
         return ret; 
     }
 
+    ret = ptp_peer_db_setup(&state->peer_db, state->config->peer_db_filename);
+    if (ret) {
+        return ret; 
+    }
+
     return 0;
 }
     
@@ -162,6 +168,11 @@ int ptp_cleanup(struct ptp_state *state) {
     ret = util_mempool_cleanup(&state->mempool);
     if (ret) {
         return ret;
+    }
+
+    ret = ptp_peer_db_cleanup(&state->peer_db);
+    if (ret) {
+        return ret; 
     }
 
     return 0;

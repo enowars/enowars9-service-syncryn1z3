@@ -5,6 +5,7 @@
 #include <ptp/ptp_constants.h>
 #include <ptp/ptp_tasks.h>
 #include <ptp/ptp_helper.h>
+#include <ptp/ptp_peer.h>
 #include <common/common_types.h>
 #include <string.h>
 #include <util/ring.h>
@@ -44,7 +45,51 @@ out:
     return ret;
 }
 
-static int ptp_handle_message_management(struct ptp_state *state, struct common_message_info *info) {
+static int ptp_handle_message_signaling(struct ptp_state *state, struct common_message_info *request) {
+    int ret;
+    
+    if (request->port_type != COMMON_PORT_TYPE_GENERAL) {
+        return -EINVAL;
+    }
+
+    ret = memcmp(&request->message.payload.signaling.target_port_id, &state->config->port_id, sizeof(state->config->port_id));
+    if (ret) {
+        return -EINVAL;
+    }
+
+    // Handle TLVs
+    for (int i = 0; i < request->message.tlv_count; ++i) {
+        struct ptp_decoded_tlv *tlv = &request->message.tlvs[i];
+
+        switch (tlv->type) {
+            case PTP_TLV_TYPE_REQUEST_UNICAST_TRANSMISSION: {
+                struct ptp_peer peer;
+
+                memcpy(&peer.port_id, &request->message.port_id, sizeof(peer.port_id));
+                memcpy(&peer.address, &request->address, sizeof(peer.address));
+                peer.expiration = state->tasks.logical_time_s + state->config->peer_expiration_time_s;
+        
+                // TODO: add message type
+
+                ptp_peer_db_add(&state->peer_db, &peer);
+                break;
+            }
+
+            case PTP_TLV_TYPE_CANCEL_UNICAST_TRANSMISSION: {
+
+                break;
+            }
+
+            default: {
+                return -EINVAL;
+            }
+        }
+    }
+
+    return 0;
+} 
+
+static int ptp_handle_message_management(struct ptp_state *state, struct common_message_info *request) {
     return 0;
 } 
 
@@ -65,6 +110,11 @@ static int ptp_handle_message(struct ptp_state *state) {
     switch (info->message.type) {
         case PTP_MESSAGE_TYPE_DELAY_REQUEST: {
             ret = ptp_handle_message_delay_request(state, info);
+            break;
+        }
+
+        case PTP_MESSAGE_TYPE_SIGNALING: {
+            ret = ptp_handle_message_signaling(state, info);
             break;
         }
     

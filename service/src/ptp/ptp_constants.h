@@ -15,7 +15,7 @@ static const uint8_t ptp_domain = 128;
 
 static const in_addr_t ptp_default_address = 0x810100e0; // 224.0.1.129
 static const uint16_t ptp_default_event_port = 319;
-static const uint16_t ptp_default_management_port = 320;
+static const uint16_t ptp_default_general_port = 320;
 
 enum ptp_message_type {
     PTP_MESSAGE_TYPE_SYNC = 0x0,
@@ -180,4 +180,9 @@ enum ptp_time_source {
     PTP_TIME_SOURCE_HAND_SET = 0x60,
     PTP_TIME_SOURCE_OTHER = 0x90,
     PTP_TIME_SOURCE_INTERNAL_OSCILLATOR= 0xa0,
+};
+
+enum ptp_tlv_unicast_flag {
+    PTP_TLV_UNICAST_FLAG_MAINTAIN_REQUEST = 1 << 0,
+    PTP_TLV_UNICAST_FLAG_MAINTAIN_GRANT = 1 << 1,
 };

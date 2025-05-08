@@ -38,6 +38,29 @@ struct ptp_decoded_management_tlv {
     int data_length;  
 };
 
+
+struct ptp_decoded_request_unicast_transmission_tlv {
+    enum ptp_message_type type;
+    uint8_t log_message_interval;
+    uint32_t duration;
+};
+
+struct ptp_decoded_grant_unicast_transmission_tlv {
+    enum ptp_message_type type;
+    uint8_t log_message_interval;
+    uint32_t duration;
+};
+
+struct ptp_decoded_cancel_unicast_transmission_tlv {
+    enum ptp_message_type type;
+    enum ptp_tlv_unicast_flag flags;
+};
+
+struct ptp_decoded_acknowledge_cancel_unicast_transmission_tlv {
+    enum ptp_message_type type;
+    enum ptp_tlv_unicast_flag flags;
+};
+
 struct ptp_decoded_pad_tlv {
     uint16_t length;  
 };
@@ -56,6 +79,10 @@ struct ptp_decoded_tlv {
 
     union {
         struct ptp_decoded_management_tlv management;
+        struct ptp_decoded_request_unicast_transmission_tlv request_unicast;
+        struct ptp_decoded_grant_unicast_transmission_tlv grant_unicast;
+        struct ptp_decoded_cancel_unicast_transmission_tlv cancel_unicast;
+        struct ptp_decoded_acknowledge_cancel_unicast_transmission_tlv acknowledge_cancel_unicast;
         struct ptp_decoded_pad_tlv pad;
         struct ptp_decoded_authentication_tlv authentication;
     } payload;

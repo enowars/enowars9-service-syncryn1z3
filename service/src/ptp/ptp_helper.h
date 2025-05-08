@@ -58,8 +58,8 @@ static void ptp_set_default_address(struct common_message_info *info, enum commo
             break;
         }
 
-        case COMMON_PORT_TYPE_MANAGEMENT: {
-            info->address.address.sin_port = htobe16(ptp_default_management_port);
+        case COMMON_PORT_TYPE_GENERAL: {
+            info->address.address.sin_port = htobe16(ptp_default_general_port);
             break;
         }
     }

@@ -1,3 +1,5 @@
+#include "ptp/ptp_constants.h"
+#include "ptp/ptp_encoded.h"
 #include <endian.h>
 #include <string.h>
 
@@ -210,6 +212,64 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
 
             output->payload.management.data = head;
             output->payload.management.data_length = tlv_tail - head;
+
+            break;
+        }
+
+        case PTP_TLV_TYPE_REQUEST_UNICAST_TRANSMISSION: {
+            struct ptp_encoded_request_unicast_transmission_tlv *payload = (struct ptp_encoded_request_unicast_transmission_tlv *)head;
+            head += sizeof(struct ptp_encoded_request_unicast_transmission_tlv);
+
+            if (head > tail || head > tlv_tail) {
+                return -1;
+            }
+
+            output->payload.request_unicast.type = (enum ptp_message_type)((payload->message_type & PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK) >> PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT);
+            output->payload.request_unicast.log_message_interval = payload->log_message_interval;
+            output->payload.request_unicast.duration = be32toh(payload->duration);
+
+            break;
+        }
+
+        case PTP_TLV_TYPE_GRANT_UNICAST_TRANSMISSION: {
+            struct ptp_encoded_grant_unicast_transmission_tlv *payload = (struct ptp_encoded_grant_unicast_transmission_tlv *)head;
+            head += sizeof(struct ptp_encoded_grant_unicast_transmission_tlv);
+
+            if (head > tail || head > tlv_tail) {
+                return -1;
+            }
+
+            output->payload.grant_unicast.type = (enum ptp_message_type)((payload->message_type & PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK) >> PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT);
+            output->payload.grant_unicast.log_message_interval = payload->log_message_interval;
+            output->payload.grant_unicast.duration = be32toh(payload->duration);
+
+            break;
+        }
+
+        case PTP_TLV_TYPE_CANCEL_UNICAST_TRANSMISSION: {
+            struct ptp_encoded_cancel_unicast_transmission_tlv *payload = (struct ptp_encoded_cancel_unicast_transmission_tlv *)head;
+            head += sizeof(struct ptp_encoded_cancel_unicast_transmission_tlv);
+
+            if (head > tail || head > tlv_tail) {
+                return -1;
+            }
+
+            output->payload.cancel_unicast.type = (enum ptp_message_type)((payload->message_type_flags & PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK) >> PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT);
+            output->payload.cancel_unicast.flags = (enum ptp_tlv_unicast_flag)((payload->message_type_flags & PTP_ENCODED_MESSAGE_TLV_UNICAST_FLAGS_MASK) >> PTP_ENCODED_MESSAGE_TLV_UNICAST_FLAGS_SHIFT);
+
+            break;
+        }
+
+        case PTP_TLV_TYPE_ACKNOWLEDGE_CANCEL_UNICAST_TRANSMISSION: {
+            struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv *payload = (struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv *)head;
+            head += sizeof(struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv);
+
+            if (head > tail || head > tlv_tail) {
+                return -1;
+            }
+
+            output->payload.acknowledge_cancel_unicast.type = (enum ptp_message_type)((payload->message_type_flags & PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK) >> PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT);
+            output->payload.acknowledge_cancel_unicast.flags = (enum ptp_tlv_unicast_flag)((payload->message_type_flags & PTP_ENCODED_MESSAGE_TLV_UNICAST_FLAGS_MASK) >> PTP_ENCODED_MESSAGE_TLV_UNICAST_FLAGS_SHIFT);
 
             break;
         }

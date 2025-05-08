@@ -16,7 +16,7 @@ struct socket_config {
     in_addr_t multicast_address;
 
     uint16_t event_port;
-    uint16_t management_port;
+    uint16_t general_port;
 
     int (*enqueue_callback)(void *user_ptr, struct common_message_info *info);
     int (*dequeue_callback)(void *user_ptr, struct common_message_info **info);

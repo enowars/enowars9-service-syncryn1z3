@@ -12,6 +12,10 @@
 #define PTP_ENCODED_MESSAGE_HEADER_TYPE_SHIFT 0
 #define PTP_ENCODED_MESSAGE_HEADER_MAJOR_SDO_ID_MASK 0xf0
 #define PTP_ENCODED_MESSAGE_HEADER_MAJOR_SDO_ID_SHIFT 4
+#define PTP_ENCODED_MESSAGE_TLV_UNICAST_FLAGS_MASK 0x03
+#define PTP_ENCODED_MESSAGE_TLV_UNICAST_FLAGS_SHIFT 0
+#define PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK 0xf0
+#define PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT 4
 #define PTP_MANAGEMENT_ACTION_MASK 0x1f
 #define PTP_MANAGEMENT_ACTION_SHIFT 0
 
@@ -160,6 +164,37 @@ struct ptp_encoded_management_tlv {
 } __attribute__((packed, aligned(1)));
 
 _Static_assert(sizeof(struct ptp_encoded_management_tlv) == 2);
+
+struct ptp_encoded_request_unicast_transmission_tlv {
+    uint8_t message_type;
+    uint8_t log_message_interval;
+    uint32_t duration;
+} __attribute__((packed, aligned(1)));
+
+_Static_assert(sizeof(struct ptp_encoded_request_unicast_transmission_tlv) == 6);
+
+struct ptp_encoded_grant_unicast_transmission_tlv {
+    uint8_t message_type;
+    uint8_t log_message_interval;
+    uint32_t duration;
+    int8_t reserved;
+} __attribute__((packed, aligned(1)));
+
+_Static_assert(sizeof(struct ptp_encoded_grant_unicast_transmission_tlv) == 7);
+
+struct ptp_encoded_cancel_unicast_transmission_tlv {
+    uint8_t message_type_flags;
+    uint8_t reserved;
+} __attribute__((packed, aligned(1)));
+
+_Static_assert(sizeof(struct ptp_encoded_cancel_unicast_transmission_tlv) == 2);
+
+struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv {
+    uint8_t message_type_flags;
+    uint8_t reserved;
+} __attribute__((packed, aligned(1)));
+
+_Static_assert(sizeof(struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv) == 2);
 
 struct ptp_encoded_authetication_tlv {
     uint8_t spp;

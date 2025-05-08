@@ -83,12 +83,15 @@ int main(int argc, char *argv[]) {
     state.config.ptp.clock_quality.offset_scaled_log_variance = 0; // TODO: Fix
 
     state.config.ptp.task_interval_s = 1;
+    state.config.ptp.peer_expiration_time_s = 60;
     state.config.ptp.log_announce_interval = 1; // 2s
     state.config.ptp.log_sync_interval = 0; // 1s
 
+    state.config.ptp.peer_db_filename = "/data/peers.db";
+
     state.config.socket.multicast_address = ptp_default_address;
     state.config.socket.event_port = ptp_default_event_port;
-    state.config.socket.management_port = ptp_default_management_port;
+    state.config.socket.general_port = ptp_default_general_port;
     state.config.socket.enqueue_callback = ptp_enqueue_message;
     state.config.socket.dequeue_callback = ptp_dequeue_message;
     state.config.socket.user_ptr = &state.ptp;

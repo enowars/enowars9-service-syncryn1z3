@@ -243,9 +243,9 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
         return ret;
     }
 
-    state->instances[COMMON_PORT_TYPE_MANAGEMENT].port = state->config->management_port;
-    state->instances[COMMON_PORT_TYPE_MANAGEMENT].port_type = COMMON_PORT_TYPE_MANAGEMENT;
-    ret = socket_setup_port(state, &state->instances[COMMON_PORT_TYPE_MANAGEMENT]);
+    state->instances[COMMON_PORT_TYPE_GENERAL].port = state->config->general_port;
+    state->instances[COMMON_PORT_TYPE_GENERAL].port_type = COMMON_PORT_TYPE_GENERAL;
+    ret = socket_setup_port(state, &state->instances[COMMON_PORT_TYPE_GENERAL]);
     if (ret) {
         return ret;
     }

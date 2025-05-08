@@ -11,7 +11,7 @@
 
 enum common_port_type {
     COMMON_PORT_TYPE_EVENT = 0,
-    COMMON_PORT_TYPE_MANAGEMENT = 1
+    COMMON_PORT_TYPE_GENERAL = 1
 };
 
 struct common_message_info {
