@@ -1,11 +1,13 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.25)
 
-find_package(SQLite3)
-
-file(GLOB_RECURSE SOURCES *.c)
-file(GLOB_RECURSE HEADERS *.h)
+file(GLOB SOURCES *.c)
+file(GLOB HEADERS *.h)
 
 add_executable(ptp-master ${SOURCES} ${HEADERS})
 
-target_include_directories(ptp-master PUBLIC ${CMAKE_CURRENT_LIST_DIR})
-target_link_libraries(ptp-master PRIVATE SQLite::SQLite3)
+target_include_directories(ptp-master PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(ptp-master PRIVATE ptp socket)
+
+add_subdirectory(ptp)
+add_subdirectory(socket)
+
