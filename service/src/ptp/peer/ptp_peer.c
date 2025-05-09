@@ -1,8 +1,10 @@
 #include <stdio.h>
+#include <stdbool.h>
 
 #include <sqlite3.h>
 
 #include <ptp/peer/ptp_peer.h>
+#include <string.h>
 
 int ptp_peer_db_setup(struct ptp_peer_db *db, const char *filename) {
     int ret;
@@ -14,9 +16,17 @@ int ptp_peer_db_setup(struct ptp_peer_db *db, const char *filename) {
         return -1;
     }
 
+    const char *pragma_query = "PRAGMA journal_mode=WAL;";
+    ret = sqlite3_exec(db->handle, pragma_query, 0, 0, &error_message);
+    if (ret != SQLITE_OK) {
+        fprintf(stderr, "SQL error: %s\n", error_message);
+        sqlite3_free(error_message);
+        return -1;
+    }
+
     const char *create_query =
         "CREATE TABLE IF NOT EXISTS\n"
-        "peers(port_id BLOB PRIMARY KEY, address BLOB UNIQUE, subscriptions INTEGER, expiration INTEGER);\n";
+        "peers(port_id BLOB PRIMARY KEY, address BLOB UNIQUE, subscriptions INTEGER, expiration INTEGER);";
 
     ret = sqlite3_exec(db->handle, create_query, 0, 0, &error_message);
     if (ret != SQLITE_OK) {
@@ -33,6 +43,53 @@ int ptp_peer_db_cleanup(struct ptp_peer_db *db) {
     sqlite3_close(db->handle);
 
     return 0;
+}
+
+int ptp_peer_db_get_active(struct ptp_peer_db *db, uint64_t time, int (*callback)(void *user_ptr, struct ptp_peer *peer), void *user_ptr) {
+    int ret;
+    char *error_message;
+    sqlite3_stmt *statement;
+
+    const char *select_query =
+        "SELECT port_id, address, subscriptions FROM peers\n"
+        "WHERE (expiration>?);";
+
+    ret = sqlite3_prepare_v2(db->handle, select_query, -1, &statement, 0);
+    if (ret != SQLITE_OK) {
+        fprintf(stderr, "Failed to prepare statement: %s\n", sqlite3_errmsg(db->handle));
+        return -1;
+    }
+
+    sqlite3_bind_int(statement, 1, time);
+
+    while (true) {
+        struct ptp_peer peer;
+
+        ret = sqlite3_step(statement);
+        if (ret == SQLITE_ROW) {
+            memcpy(&peer.port_id, sqlite3_column_blob(statement, 0), sizeof(peer.port_id));
+            memcpy(&peer.address, sqlite3_column_blob(statement, 1), sizeof(peer.address));
+            peer.subscriptions = sqlite3_column_int(statement, 2);
+
+            ret = callback(user_ptr, &peer);
+            if (ret) {
+                goto out;
+            }
+        } else if (ret == SQLITE_DONE) {
+            break;
+        } else {
+            fprintf(stderr, "Execution failed: %s\n", sqlite3_errmsg(db->handle));
+            ret = -1;
+            goto out;
+        }
+    }
+
+    ret = 0;
+
+out:
+    sqlite3_finalize(statement);
+
+    return ret;
 }
 
 int ptp_peer_db_add_subscription(struct ptp_peer_db *db, struct ptp_peer *peer) {

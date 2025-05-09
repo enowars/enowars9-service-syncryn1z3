@@ -5,16 +5,17 @@
 #include <ptp/ptp_helper.h>
 #include <ptp/protocol/ptp_protocol.h>
 #include <ptp/tasks/ptp_tasks.h>
+#include <ptp/peer/ptp_peer.h>
 #include <common/common_types.h>
 #include <string.h>
 #include <util/mempool.h>
 #include <util/time.h>
 
-static int ptp_task_announce(struct ptp_state *state) {   
+static int ptp_send_announce(void *user_ptr, struct ptp_peer *peer) {
     int ret;
+    struct ptp_state *state = user_ptr;
 
-    ret = ptp_try_run_task(&state->tasks, &state->tasks.cyclic.announce.task, state->config->log_announce_interval);
-    if (ret) {
+    if (!(peer->subscriptions & PTP_PEER_SUBSCRIPTION_ANNOUNCE)) {
         return 0;
     }
     
@@ -24,7 +25,8 @@ static int ptp_task_announce(struct ptp_state *state) {
         return ret;
     }
 
-    ptp_set_default_address(info, COMMON_PORT_TYPE_EVENT);
+    memcpy(&info->address.address, &peer->address, sizeof(info->address.address));
+    info->address.length = sizeof(info->address.address);
 
     info->message.type = PTP_MESSAGE_TYPE_ANNOUNCE;
     info->message.sequence_id = state->tasks.cyclic.announce.sequence_id++;
@@ -49,11 +51,11 @@ out:
     return ret;
 }
 
-static int ptp_task_sync(struct ptp_state *state) {   
+static int ptp_send_sync(void *user_ptr, struct ptp_peer *peer) {
     int ret;
+    struct ptp_state *state = user_ptr;
 
-    ret = ptp_try_run_task(&state->tasks, &state->tasks.cyclic.sync.task, state->config->log_sync_interval);
-    if (ret) {
+    if (!(peer->subscriptions & PTP_PEER_SUBSCRIPTION_SYNC)) {
         return 0;
     }
     
@@ -63,7 +65,8 @@ static int ptp_task_sync(struct ptp_state *state) {
         return ret;
     }
 
-    ptp_set_default_address(info, COMMON_PORT_TYPE_EVENT);
+    memcpy(&info->address.address, &peer->address, sizeof(info->address.address));
+    info->address.length = sizeof(info->address.address);
 
     info->message.type = PTP_MESSAGE_TYPE_SYNC;
     info->message.sequence_id = state->tasks.cyclic.sync.sequence_id++;
@@ -80,6 +83,32 @@ static int ptp_task_sync(struct ptp_state *state) {
 
 out:
     util_mempool_put(info);
+    return ret;
+}
+
+static int ptp_task_announce(struct ptp_state *state) {
+    int ret;
+
+    ret = ptp_try_run_task(&state->tasks, &state->tasks.cyclic.announce.task, state->config->log_announce_interval);
+    if (ret) {
+        return 0;
+    }
+    
+    ret = ptp_peer_db_get_active(&state->peer_db, state->tasks.logical_time_s, ptp_send_announce, state);
+
+    return ret;
+}
+
+static int ptp_task_sync(struct ptp_state *state) {   
+    int ret;
+
+    ret = ptp_try_run_task(&state->tasks, &state->tasks.cyclic.sync.task, state->config->log_sync_interval);
+    if (ret) {
+        return 0;
+    }
+
+    ret = ptp_peer_db_get_active(&state->peer_db, state->tasks.logical_time_s, ptp_send_sync, state);
+
     return ret;
 }
 
