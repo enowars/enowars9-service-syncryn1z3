@@ -22,16 +22,30 @@ class PtpConnection:
 
     def __enter__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.socket.settimeout(0.1)
 
         self.request_unicast_message("SYNC")
+        self.request_unicast_message("ANNOUNCE")
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.cancel_unicast_message("SYNC")
+        self.cancel_unicast_message("ANNOUNCE")
 
         self.socket.close()
 
+    def send(self, message, port_type):
+        request = message.encode(self.BUFFER_SIZE)
+        port = self.SERVER_PORT_EVENT if port_type == "EVENT" else self.SERVER_PORT_GENERAL
+
+        self.socket.sendto(request, (self.SERVER_ADDRESS, port))
+
+    def receive(self):
+        response, server = self.socket.recvfrom(self.BUFFER_SIZE)
+        
+        return ptp_message.from_buffer(response)
+
     def request_unicast_message(self, type, duration=60, log_message_interval=0):
-        message = ptp_message.PtpMessage("SIGNALING", self.clock_id, self.port, self.sequence_number_general)
+        message = ptp_message.from_parameters("SIGNALING", self.clock_id, self.port, self.sequence_number_general)
         self.sequence_number_general += 1
 
         payload = message.get_payload()
@@ -48,19 +62,15 @@ class PtpConnection:
             tlv.type = ptp_protocol.lib.PTP_MESSAGE_TYPE_ANNOUNCE
         else:
             raise RuntimeError("Invalid message type requested")
-        
-        request = message.encode(self.BUFFER_SIZE)
 
-        # Send message to server
-        self.socket.sendto(request, (self.SERVER_ADDRESS, self.SERVER_PORT_GENERAL))
-        print(f"Sent: {request}")
+        self.send(message, "GENERAL")
+        response = self.receive()
 
-        # Receive response from server
-        response, server = self.socket.recvfrom(self.BUFFER_SIZE)
-        print(f"Received from server: {response}")
+        if not any(type == "GRANT_UNICAST" for type, payload in response.get_tlvs()):
+            raise RuntimeError("No GRANT_UNICAST received")
 
     def cancel_unicast_message(self, type):
-        message = ptp_message.PtpMessage("SIGNALING", self.clock_id, self.port, self.sequence_number_general)
+        message = ptp_message.from_parameters("SIGNALING", self.clock_id, self.port, self.sequence_number_general)
         self.sequence_number_general += 1
 
         payload = message.get_payload()
@@ -76,12 +86,9 @@ class PtpConnection:
         else:
             raise RuntimeError("Invalid message type requested")
         
-        request = message.encode(self.BUFFER_SIZE)
+        self.send(message, "GENERAL")
+        response = self.receive()
 
-        # Send message to server
-        self.socket.sendto(request, (self.SERVER_ADDRESS, self.SERVER_PORT_GENERAL))
-        print(f"Sent: {request}")
-
-        # Receive response from server
-        response, server = self.socket.recvfrom(self.BUFFER_SIZE)
-        print(f"Received from server: {response}")
+        if not any(type == "ACKNOWLEDGE_CANCEL_UNICAST" for type, payload in response.get_tlvs()):
+            raise RuntimeError("No ACKNOWLEDGE_CANCEL_UNICAST received")
+        
