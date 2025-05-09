@@ -61,6 +61,7 @@ enum ptp_flag {
     PTP_FLAG_TIME_TRACABLE = 1 << 12,
     PTP_FLAG_FREQUENCY_TRACABLE = 1 << 13,
     PTP_FLAG_SYNCHRONIZATION_UNCERTAIN = 1 << 14,
+    PTP_FLAG_MASK = (1 << 15) - 1,
 };
 
 enum ptp_management_action {
@@ -179,4 +180,5 @@ enum ptp_time_source {
 enum ptp_tlv_unicast_flag {
     PTP_TLV_UNICAST_FLAG_MAINTAIN_REQUEST = 1 << 0,
     PTP_TLV_UNICAST_FLAG_MAINTAIN_GRANT = 1 << 1,
+    PTP_TLV_UNICAST_FLAG_MASK = (1 << 2) - 1,
 };

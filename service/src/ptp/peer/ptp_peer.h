@@ -27,5 +27,5 @@ struct ptp_peer_db {
 int ptp_peer_db_setup(struct ptp_peer_db *db, const char *filename);
 int ptp_peer_db_cleanup(struct ptp_peer_db *db);
 
-int ptp_peer_db_update_peer(struct ptp_peer_db *db, struct ptp_peer *peer);
-int ptp_peer_db_remove_peer(struct ptp_peer_db *db, struct ptp_peer *peer);
+int ptp_peer_db_add_subscription(struct ptp_peer_db *db, struct ptp_peer *peer);
+int ptp_peer_db_remove_subscription(struct ptp_peer_db *db, struct ptp_peer *peer);
