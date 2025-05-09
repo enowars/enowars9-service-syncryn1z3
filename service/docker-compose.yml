@@ -8,9 +8,8 @@ services:
     volumes:
       - ./data/:/data:rw
     # Define the port mapping (external:internal port)
-    #network_mode: host
-    #ports:
-    #  - "319:319"
+    ports:
+      - "319:319"
     networks:
       - testing
 

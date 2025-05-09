@@ -1,6 +1,7 @@
 #include <error.h>
 
 #include <ptp/ptp.h>
+#include <ptp/ptp_defaults.h>
 #include <ptp/ptp_helper.h>
 #include <ptp/protocol/ptp_protocol.h>
 #include <ptp/tasks/ptp_tasks.h>
@@ -23,20 +24,18 @@ static int ptp_task_announce(struct ptp_state *state) {
         return ret;
     }
 
+    ptp_set_default_address(info, COMMON_PORT_TYPE_EVENT);
+
     info->message.type = PTP_MESSAGE_TYPE_ANNOUNCE;
     info->message.sequence_id = state->tasks.cyclic.announce.sequence_id++;
     info->message.log_message_interval = state->config->log_announce_interval;
 
     info->message.payload.announce.timestamp = util_get_time_ns();
-
     info->message.payload.announce.grandmaster_priority = state->config->clock_priority;
     memcpy(&info->message.payload.announce.grandmaster_clock_quality, &state->config->clock_quality, sizeof(state->config->clock_quality));
     memcpy(&info->message.payload.announce.grandmaster_id, &state->config->port_id.clock_id, sizeof(state->config->port_id.clock_id));
-
     info->message.payload.announce.steps_removed = 0;
     info->message.payload.announce.time_source = PTP_TIME_SOURCE_INTERNAL_OSCILLATOR;
-
-    ptp_set_default_address(info, COMMON_PORT_TYPE_EVENT);
 
     ret = ptp_encode_and_enqueue_message(state, info);
     if (ret) {
@@ -64,13 +63,13 @@ static int ptp_task_sync(struct ptp_state *state) {
         return ret;
     }
 
+    ptp_set_default_address(info, COMMON_PORT_TYPE_EVENT);
+
     info->message.type = PTP_MESSAGE_TYPE_SYNC;
     info->message.sequence_id = state->tasks.cyclic.sync.sequence_id++;
     info->message.log_message_interval = state->config->log_sync_interval;
 
     info->message.payload.event.timestamp = util_get_time_ns();
-
-    ptp_set_default_address(info, COMMON_PORT_TYPE_EVENT);
 
     ret = ptp_encode_and_enqueue_message(state, info);
     if (ret) {

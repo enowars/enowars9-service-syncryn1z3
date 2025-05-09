@@ -8,8 +8,8 @@
 struct sqlite3;
 
 enum ptp_peer_subscription {
-    PTP_PEER_SUBSCRIPTION_ANNOUNCE = (1 << 0),
-    PTP_PEER_SUBSCRIPTION_SYNC = (1 << 1),
+    PTP_PEER_SUBSCRIPTION_SYNC = (1 << 0),
+    PTP_PEER_SUBSCRIPTION_ANNOUNCE = (1 << 1),
 };
 
 struct ptp_peer {
@@ -27,5 +27,5 @@ struct ptp_peer_db {
 int ptp_peer_db_setup(struct ptp_peer_db *db, const char *filename);
 int ptp_peer_db_cleanup(struct ptp_peer_db *db);
 
-int ptp_peer_db_add(struct ptp_peer_db *db, struct ptp_peer *peer);
-int ptp_peer_db_remove(struct ptp_peer_db *db, struct ptp_peer *peer);
+int ptp_peer_db_update_peer(struct ptp_peer_db *db, struct ptp_peer *peer);
+int ptp_peer_db_remove_peer(struct ptp_peer_db *db, struct ptp_peer *peer);

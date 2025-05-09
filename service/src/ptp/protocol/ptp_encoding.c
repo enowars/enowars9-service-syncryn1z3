@@ -1,6 +1,7 @@
 #include <endian.h>
 #include <string.h>
 
+#include <ptp/protocol/ptp_encoded.h>
 #include <ptp/protocol/ptp_protocol.h>
 
 static void ptp_encode_port_id(struct ptp_encoded_port_id *output, struct ptp_decoded_port_id *input) {
@@ -239,6 +240,7 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
             payload->message_type = (input->payload.grant_unicast.type << PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT) & PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK;
             payload->log_message_interval = input->payload.grant_unicast.log_message_interval;
             payload->duration = htobe32(input->payload.grant_unicast.duration);
+            payload->flags = (input->payload.grant_unicast.flags << PTP_ENCODED_MESSAGE_TLV_UNICAST_FLAGS_SHIFT) & PTP_ENCODED_MESSAGE_TLV_UNICAST_FLAGS_MASK;
 
             break;
         }

@@ -178,9 +178,10 @@ struct ptp_encoded_grant_unicast_transmission_tlv {
     uint8_t log_message_interval;
     uint32_t duration;
     int8_t reserved;
+    int8_t flags;
 } __attribute__((packed, aligned(1)));
 
-_Static_assert(sizeof(struct ptp_encoded_grant_unicast_transmission_tlv) == 7);
+_Static_assert(sizeof(struct ptp_encoded_grant_unicast_transmission_tlv) == 8);
 
 struct ptp_encoded_cancel_unicast_transmission_tlv {
     uint8_t message_type_flags;

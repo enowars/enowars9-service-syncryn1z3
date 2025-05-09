@@ -1,8 +1,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <endian.h>
-#include <arpa/inet.h>
 
 
 /*
@@ -12,10 +10,6 @@
 static const uint8_t ptp_version = 0x12;
 static const uint16_t ptp_sdo_id = 0xffd;
 static const uint8_t ptp_domain = 128;
-
-static const in_addr_t ptp_default_address = 0x810100e0; // 224.0.1.129
-static const uint16_t ptp_default_event_port = 319;
-static const uint16_t ptp_default_general_port = 320;
 
 enum ptp_message_type {
     PTP_MESSAGE_TYPE_SYNC = 0x0,

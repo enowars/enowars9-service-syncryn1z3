@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#include <ptp/protocol/ptp_encoded.h>
+#include <ptp/protocol/ptp_constants.h>
 
 #define PTP_MAX_TLV_COUNT 8
 
@@ -49,6 +49,7 @@ struct ptp_decoded_grant_unicast_transmission_tlv {
     enum ptp_message_type type;
     uint8_t log_message_interval;
     uint32_t duration;
+    enum ptp_tlv_unicast_flag flags;
 };
 
 struct ptp_decoded_cancel_unicast_transmission_tlv {
@@ -132,7 +133,7 @@ struct ptp_decoded_message {
     struct ptp_decoded_port_id port_id;
 
     uint16_t flags;
-    uint64_t correction;    
+    uint64_t correction;
     uint8_t control;
 
     uint8_t log_message_interval;

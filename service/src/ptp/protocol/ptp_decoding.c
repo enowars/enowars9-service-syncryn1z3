@@ -1,9 +1,9 @@
 #include <endian.h>
 #include <string.h>
 
-#include <ptp/protocol/ptp_protocol.h>
 #include <ptp/protocol/ptp_constants.h>
 #include <ptp/protocol/ptp_encoded.h>
+#include <ptp/protocol/ptp_protocol.h>
 
 static void ptp_decode_port_id(struct ptp_decoded_port_id *output, struct ptp_encoded_port_id *input) {
     memcpy(output->clock_id, input->clock_id, sizeof(input->clock_id));
@@ -242,6 +242,7 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
             output->payload.grant_unicast.type = (enum ptp_message_type)((payload->message_type & PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK) >> PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT);
             output->payload.grant_unicast.log_message_interval = payload->log_message_interval;
             output->payload.grant_unicast.duration = be32toh(payload->duration);
+            output->payload.grant_unicast.flags = (enum ptp_tlv_unicast_flag)((payload->flags & PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK) >> PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT);
 
             break;
         }

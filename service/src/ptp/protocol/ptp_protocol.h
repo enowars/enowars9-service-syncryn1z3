@@ -2,7 +2,6 @@
 
 #include <stdint.h>
 
-#include <ptp/protocol/ptp_encoded.h>
 #include <ptp/protocol/ptp_decoded.h>
 
 int ptp_encode_message(uint8_t *output, struct ptp_decoded_message *input, int length);
