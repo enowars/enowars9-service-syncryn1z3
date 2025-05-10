@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <error.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <ptp/ptp.h>
@@ -131,6 +132,26 @@ out:
     return ret;
 }
 
+static int ptp_handle_tlv_management(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_management_tlv *tlv) {
+    switch (tlv->id) {
+        case PTP_MANAGEMENT_ID_USER_DESCRIPTION: {
+            if (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_SET) {
+                printf("Received USER_DESCRIPTION: %s\n", tlv->payload.user_description);
+            } else {
+                return -EINVAL;
+            }
+
+            break;
+        }
+
+        default: {
+            return -EINVAL;
+        }
+    }
+
+    return 0;
+}
+
 static int ptp_handle_message_delay_request(struct ptp_state *state, struct common_message_info *request) {
     int ret;
     struct common_message_info *response;
@@ -210,6 +231,37 @@ static int ptp_handle_message_signaling(struct ptp_state *state, struct common_m
 } 
 
 static int ptp_handle_message_management(struct ptp_state *state, struct common_message_info *request) {
+    int ret;
+    
+    if (request->port_type != COMMON_PORT_TYPE_GENERAL) {
+        return -EINVAL;
+    }
+
+    ret = memcmp(&request->message.payload.management.target_port_id, &state->config->port_id, sizeof(state->config->port_id));
+    if (ret) {
+        return -EINVAL;
+    }
+
+    // Handle supported TLVs
+    for (int i = 0; i < request->message.tlv_count; ++i) {
+        struct ptp_decoded_tlv *tlv = &request->message.tlvs[i];
+
+        switch (tlv->type) {
+            case PTP_TLV_TYPE_MANAGEMENT: {
+                ret = ptp_handle_tlv_management(state, request, &tlv->payload.management);
+                if (ret) {
+                    return ret;
+                }
+
+                break;
+            }
+
+            default: {
+                return -EINVAL;
+            }
+        }
+    }
+
     return 0;
 } 
 
