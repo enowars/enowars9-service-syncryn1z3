@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #include <ptp/protocol/ptp_constants.h>
 
@@ -80,12 +81,13 @@ struct ptp_decoded_authentication_tlv {
     uint8_t security_parameter_indicatior;
     uint32_t key_id;
 
-    void *icv;
+    uint8_t *icv;
     int icv_length;    
 };
 
 struct ptp_decoded_tlv {
     enum ptp_tlv_type type;
+    bool authenticated;
 
     union {
         struct ptp_decoded_management_tlv management;
@@ -136,6 +138,7 @@ struct ptp_decoded_management_message {
 struct ptp_decoded_message {
     enum ptp_message_type type;
     uint16_t sequence_id;
+    bool authenticated;
 
     uint16_t sdo_id;
     uint8_t domain;

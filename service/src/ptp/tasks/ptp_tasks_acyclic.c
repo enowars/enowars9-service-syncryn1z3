@@ -9,6 +9,7 @@
 #include <ptp/ptp_helper.h>
 #include <ptp/protocol/ptp_constants.h>
 #include <ptp/protocol/ptp_protocol.h>
+#include <ptp/security/ptp_security.h>
 #include <ptp/tasks/ptp_tasks.h>
 #include <ptp/peer/ptp_peer.h>
 #include <common/common_types.h>
@@ -48,6 +49,11 @@ static int ptp_management_error(struct ptp_state *state, struct common_message_i
     }
 
     response->message.tlv_count = 1;
+
+    ret = ptp_security_add_auth_tlv(state, response, 0);
+    if (ret) {
+        goto out;
+    }
 
     ret = ptp_encode_and_enqueue_message(state, response);
     if (ret) {
@@ -336,12 +342,25 @@ static int ptp_handle_message_management(struct ptp_state *state, struct common_
         return -EINVAL;
     }
 
+    // Only require authetication on management messages
+    ret = ptp_security_check_auth(state, request);
+    if (ret) {
+        ret = ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_GENERAL, PTP_MANAGEMENT_ID_NULL, "Authentication error: %d", -ret);
+        if (ret) {
+            return ret;
+        }
+    }
+
     // Handle supported TLVs
     for (int i = 0; i < request->message.tlv_count; ++i) {
         struct ptp_decoded_tlv *tlv = &request->message.tlvs[i];
 
         switch (tlv->type) {
             case PTP_TLV_TYPE_MANAGEMENT: {
+                if (!tlv->authenticated) {
+                    continue;
+                }
+
                 ret = ptp_handle_tlv_management(state, request, &tlv->payload.management);
                 if (ret) {
                     return ret;

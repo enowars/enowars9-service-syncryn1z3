@@ -55,6 +55,13 @@ class PtpManagement:
 
         return message
     
+    def add_auth_tlv(self, message):
+        tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION)
+        tlv.payload.authentication.spp = 0
+        tlv.payload.authentication.security_parameter_indicatior = 0
+        tlv.payload.authentication.key_id = 0
+        tlv.payload.authentication.icv_length = 16
+
     def get_user_description(self):
         message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, self.clock_id, self.port, self.sequence_number)
         self.sequence_number += 1
@@ -68,6 +75,8 @@ class PtpManagement:
 
         tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
         tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
+
+        self.add_auth_tlv(message)
         
         self.send(message)
         response = self.receive()
@@ -90,6 +99,8 @@ class PtpManagement:
         tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
         tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
         ptp_protocol.ffi.memmove(tlv.payload.management.payload.user_description, description + b'\0', len(description) + 1)
+
+        self.add_auth_tlv(message)
         
         self.send(message)
         response = self.receive()

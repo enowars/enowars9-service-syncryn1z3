@@ -9,6 +9,7 @@
 #include <ptp/protocol/ptp_constants.h>
 #include <ptp/protocol/ptp_decoded.h>
 #include <ptp/protocol/ptp_protocol.h>
+#include <ptp/security/ptp_security.h>
 #include <common/common_types.h>
 #include <sys/socket.h>
 #include <util/ring.h>
@@ -41,6 +42,11 @@ static int ptp_encode_and_enqueue_message(struct ptp_state *state, struct common
     }
 
     info->buffer.length = ret;
+
+    ret = ptp_security_complete_auth_tlvs(state, info);
+    if (ret < 0) {
+        return ret;
+    }
 
     ret = util_ring_put(&state->tx_ring, info);
     if (ret) {

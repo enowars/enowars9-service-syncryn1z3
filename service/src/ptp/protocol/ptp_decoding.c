@@ -259,6 +259,8 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
     struct ptp_encoded_tlv_header *header = (struct ptp_encoded_tlv_header *)head;
     
     output->type = (enum ptp_tlv_type)be16toh(header->type);
+    output->authenticated = false;
+
     const int length = be16toh(header->length); // Vulnerability (signed conversion bug)
 
     head += sizeof(struct ptp_encoded_tlv_header);
@@ -396,6 +398,7 @@ int ptp_decode_message(struct ptp_decoded_message *output, uint8_t *input, int l
 
     output->type = (header->major_sdo_id_type & PTP_ENCODED_MESSAGE_HEADER_TYPE_MASK) >> PTP_ENCODED_MESSAGE_HEADER_TYPE_SHIFT;
     output->sequence_id = be16toh(header->sequence_id);
+    output->authenticated = false;
 
     output->sdo_id = ((uint16_t)((header->major_sdo_id_type & PTP_ENCODED_MESSAGE_HEADER_MAJOR_SDO_ID_MASK) >> PTP_ENCODED_MESSAGE_HEADER_MAJOR_SDO_ID_SHIFT) << 8) | header->minor_sdo_id;
     output->domain = header->domain;
