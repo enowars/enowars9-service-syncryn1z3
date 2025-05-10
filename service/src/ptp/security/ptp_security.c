@@ -1,12 +1,12 @@
 #include <errno.h>
 #include <string.h>
+#include <stdint.h>
 
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
 
 #include <ptp/protocol/ptp_decoded.h>
 #include <ptp/security/ptp_security.h>
-#include <stdint.h>
 
 #define PTP_HMAC_128_SIZE 16
 

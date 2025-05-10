@@ -345,7 +345,7 @@ static int ptp_handle_message_management(struct ptp_state *state, struct common_
     // Only require authetication on management messages
     ret = ptp_security_check_auth(state, request);
     if (ret) {
-        ret = ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_GENERAL, PTP_MANAGEMENT_ID_NULL, "Authentication error: %d", -ret);
+        ret = ptp_management_error(state, request, ptp_management_error_id(ret), PTP_MANAGEMENT_ID_NULL, "Authentication failed");
         if (ret) {
             return ret;
         }

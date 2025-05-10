@@ -94,3 +94,17 @@ static inline int ptp_message_type_to_peer_subsciption(enum ptp_message_type typ
     
     return 0;
 }
+
+static inline enum ptp_management_error_id ptp_management_error_id(int error) {
+    // Correctly handle negative return codes
+    if (error < 0) {
+        error = -error;
+    }
+
+    // Fallback to general error if we overshoot assigned range 
+    if (error > 0x1FFF) {
+        error = 1;
+    }
+
+    return PTP_MANAGEMENT_ERROR_ID_IMPLEMENTATION_SPECIFIC + error;
+}
