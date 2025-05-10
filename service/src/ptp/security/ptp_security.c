@@ -65,11 +65,12 @@ int ptp_security_check_auth(struct ptp_state *state, struct common_message_info 
     int ret;
     bool authenticated = false;
     
-    for (int i = info->message.tlv_count - 1; i > 0; --i) {
+    for (int i = info->message.tlv_count - 1; i >= 0; --i) {
         struct ptp_decoded_tlv *tlv = &info->message.tlvs[i];
 
         if (tlv->type != PTP_TLV_TYPE_AUTHENTICATION) {
             tlv->authenticated = authenticated;
+            continue;
         }
 
         const uint8_t *data = (const uint8_t *)info->buffer.data;
@@ -89,6 +90,8 @@ int ptp_security_check_auth(struct ptp_state *state, struct common_message_info 
         authenticated = true;
         tlv->authenticated = true;
     }
+
+    info->message.authenticated = authenticated;
 
     return 0;
 }

