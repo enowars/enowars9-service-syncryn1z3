@@ -14,6 +14,44 @@
 #include <util/ring.h>
 #include <util/mempool.h>
 
+static int ptp_handle_management_user_description_get(struct ptp_state *state, struct common_message_info *request) {
+    int ret;
+    struct common_message_info *response;
+
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL);
+    if (ret) {
+        return ret;
+    }
+
+    memcpy(&response->address, &request->address, sizeof(request->address));
+
+    response->message.type = PTP_MESSAGE_TYPE_MANAGEMENT;
+    response->message.sequence_id = request->message.sequence_id;
+    response->message.flags = PTP_FLAG_UNICAST;
+
+    response->message.payload.management.action = PTP_MANAGEMENT_ACTION_RESPONSE;
+    response->message.payload.management.starting_boundary_hops = 0;
+    response->message.payload.management.boundary_hops = 0;
+    memcpy(&response->message.payload.management.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
+
+    response->message.tlvs[0].type = PTP_TLV_TYPE_MANAGEMENT;
+    response->message.tlvs[0].payload.management.id = PTP_MANAGEMENT_ID_USER_DESCRIPTION;
+    strncpy(response->message.tlvs[0].payload.management.payload.user_description, "1234test", 128);
+
+    response->message.tlv_count = 1;
+
+    ret = ptp_encode_and_enqueue_message(state, response);
+    if (ret) {
+        goto out;
+    }
+    
+    return 0;
+
+out:
+    util_mempool_put(response);
+    return ret;
+}
+
 static int ptp_handle_tlv_request_unicast(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_request_unicast_transmission_tlv *tlv) {
     int ret;
     struct ptp_peer peer;
@@ -133,12 +171,15 @@ out:
 }
 
 static int ptp_handle_tlv_management(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_management_tlv *tlv) {
+    int ret;
+
     switch (tlv->id) {
         case PTP_MANAGEMENT_ID_USER_DESCRIPTION: {
             if (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_SET) {
+                // TODO: implement for admin
                 printf("Received USER_DESCRIPTION: %s\n", tlv->payload.user_description);
             } else {
-                return -EINVAL;
+                ret = ptp_handle_management_user_description_get(state, request);
             }
 
             break;
@@ -237,6 +278,7 @@ static int ptp_handle_message_management(struct ptp_state *state, struct common_
         return -EINVAL;
     }
 
+    // TODO: support all 1s clock/port ids
     ret = memcmp(&request->message.payload.management.target_port_id, &state->config->port_id, sizeof(state->config->port_id));
     if (ret) {
         return -EINVAL;

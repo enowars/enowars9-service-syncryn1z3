@@ -42,6 +42,22 @@ class PtpManagement:
         response, server = self.socket.recvfrom(self.BUFFER_SIZE)
         
         return ptp_message.from_buffer(response)
+    
+    def get_user_description(self):
+        message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, self.clock_id, self.port, self.sequence_number)
+        self.sequence_number += 1
+
+        payload = message.get_payload()
+        payload.management.target_port_id.clock_id = (0x0200000000000000 + self.target_id).to_bytes(8, byteorder="big")
+        payload.management.target_port_id.port = 1
+        payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
+        payload.management.starting_boundary_hops = 0
+        payload.management.boundary_hops = 0
+
+        tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+        tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
+        
+        self.send(message)
 
     def set_user_description(self, description):
         description = description.encode('utf-8')
@@ -66,7 +82,8 @@ class PtpManagement:
 
 def main():
     with PtpManagement(42) as management:
-        management.set_user_description("test1234")
+        #management.set_user_description("test1234")
+        management.get_user_description()
             
         try:
             while True:
