@@ -200,7 +200,7 @@ static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, 
             struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)head;
             head += sizeof(*header);
 
-            if (header->length > 128) {
+            if (header->length > PTP_USER_DESCRIPTION_SIZE) {
                 return -1;
             }
 
@@ -209,7 +209,7 @@ static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, 
             }
 
             strncpy(output->payload.user_description, (char *)head, header->length);
-            output->payload.user_description[128] = '\0';
+            output->payload.user_description[PTP_USER_DESCRIPTION_SIZE] = '\0';
 
             break;
         }
@@ -218,6 +218,36 @@ static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, 
             return -1;
         }
     }
+
+    return 0;
+}
+
+static int ptp_decode_management_error_status_tlv(struct ptp_decoded_management_error_status_tlv *output, uint8_t **input, uint8_t *const tlv_tail) {
+    uint8_t *head = *input;
+
+    struct ptp_encoded_management_error_status_tlv *payload = (struct ptp_encoded_management_error_status_tlv *)head;
+    head += sizeof(struct ptp_encoded_management_error_status_tlv);
+
+    if (head > tlv_tail) {
+        return -1;
+    }
+
+    output->error_id = (enum ptp_management_error_id)be16toh(payload->management_error_id);
+    output->id = (enum ptp_management_id)be16toh(payload->management_id);
+
+    struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)head;
+    head += sizeof(*header);
+
+    if (header->length > PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE) {
+        return -1;
+    }
+
+    if (head + header->length > tlv_tail) {
+        return -1;
+    }
+
+    strncpy(output->display_data, (char *)head, header->length);
+    output->display_data[PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE] = '\0';
 
     return 0;
 }
@@ -241,6 +271,15 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
     switch (output->type) {
         case PTP_TLV_TYPE_MANAGEMENT: {
             ret = ptp_decode_management_tlv(&output->payload.management, &head, tlv_tail);
+            if (ret) {
+                return ret;
+            }
+
+            break;
+        }
+
+        case PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS: {
+            ret = ptp_decode_management_error_status_tlv(&output->payload.management_error_status, &head, tlv_tail);
             if (ret) {
                 return ret;
             }

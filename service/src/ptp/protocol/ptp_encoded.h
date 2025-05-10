@@ -170,6 +170,14 @@ struct ptp_encoded_management_tlv {
 
 _Static_assert(sizeof(struct ptp_encoded_management_tlv) == 2);
 
+struct ptp_encoded_management_error_status_tlv {
+    uint16_t management_error_id;
+    uint16_t management_id;
+    uint8_t reserved[4];
+} __attribute__((packed, aligned(1)));
+
+_Static_assert(sizeof(struct ptp_encoded_management_error_status_tlv) == 8);
+
 struct ptp_encoded_request_unicast_transmission_tlv {
     uint8_t message_type;
     uint8_t log_message_interval;

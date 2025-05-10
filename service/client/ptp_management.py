@@ -41,7 +41,19 @@ class PtpManagement:
     def receive(self):
         response, server = self.socket.recvfrom(self.BUFFER_SIZE)
         
-        return ptp_message.from_buffer(response)
+        message = ptp_message.from_buffer(response)
+
+        if (message.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT):
+            raise RuntimeError("Expected management message")
+
+        for tlv in message.get_tlvs():
+            if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
+                if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
+                    print("Received user description: {}".format(ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()))
+            if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
+                print("Received management error: {}".format(ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()))
+
+        return message
     
     def get_user_description(self):
         message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, self.clock_id, self.port, self.sequence_number)
@@ -58,6 +70,7 @@ class PtpManagement:
         tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
         
         self.send(message)
+        response = self.receive()
 
     def set_user_description(self, description):
         description = description.encode('utf-8')
@@ -79,18 +92,12 @@ class PtpManagement:
         ptp_protocol.ffi.memmove(tlv.payload.management.payload.user_description, description + b'\0', len(description) + 1)
         
         self.send(message)
+        response = self.receive()
 
 def main():
     with PtpManagement(42) as management:
-        #management.set_user_description("test1234")
+        management.set_user_description("test1234")
         management.get_user_description()
-            
-        try:
-            while True:
-                pass
-
-        except KeyboardInterrupt:
-            print("See you another time!")
 
 if __name__ == "__main__":
     main()

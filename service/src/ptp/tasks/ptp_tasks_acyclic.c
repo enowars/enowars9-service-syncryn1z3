@@ -2,6 +2,7 @@
 #include <error.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 
 #include <ptp/ptp.h>
 #include <ptp/ptp_defaults.h>
@@ -13,6 +14,52 @@
 #include <common/common_types.h>
 #include <util/ring.h>
 #include <util/mempool.h>
+
+static int ptp_management_error(struct ptp_state *state, struct common_message_info *request, enum ptp_management_error_id error_id, enum ptp_management_id id, const char *format, ...) {
+    int ret;
+    va_list va_args;
+    struct common_message_info *response;
+
+    va_start(va_args, format);
+
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL);
+    if (ret) {
+        return ret;
+    }
+
+    memcpy(&response->address, &request->address, sizeof(request->address));
+
+    response->message.type = PTP_MESSAGE_TYPE_MANAGEMENT;
+    response->message.sequence_id = request->message.sequence_id;
+    response->message.flags = PTP_FLAG_UNICAST;
+
+    response->message.payload.management.action = PTP_MANAGEMENT_ACTION_RESPONSE;
+    response->message.payload.management.starting_boundary_hops = 0;
+    response->message.payload.management.boundary_hops = 0;
+    memcpy(&response->message.payload.management.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
+
+    response->message.tlvs[0].type = PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS;
+    response->message.tlvs[0].payload.management_error_status.error_id = error_id;
+    response->message.tlvs[0].payload.management_error_status.id = id;
+
+    ret = vsnprintf(response->message.tlvs[0].payload.management_error_status.display_data, PTP_USER_DESCRIPTION_SIZE, format, va_args);
+    if (ret < 0) {
+        return ret;
+    }
+
+    response->message.tlv_count = 1;
+
+    ret = ptp_encode_and_enqueue_message(state, response);
+    if (ret) {
+        goto out;
+    }
+    
+    return 0;
+
+out:
+    util_mempool_put(response);
+    return ret;
+}
 
 static int ptp_handle_management_user_description_get(struct ptp_state *state, struct common_message_info *request) {
     int ret;
@@ -36,7 +83,7 @@ static int ptp_handle_management_user_description_get(struct ptp_state *state, s
 
     response->message.tlvs[0].type = PTP_TLV_TYPE_MANAGEMENT;
     response->message.tlvs[0].payload.management.id = PTP_MANAGEMENT_ID_USER_DESCRIPTION;
-    strncpy(response->message.tlvs[0].payload.management.payload.user_description, "1234test", 128);
+    strncpy(response->message.tlvs[0].payload.management.payload.user_description, "1234test", PTP_USER_DESCRIPTION_SIZE); // TODO: return variable
 
     response->message.tlv_count = 1;
 
@@ -178,6 +225,11 @@ static int ptp_handle_tlv_management(struct ptp_state *state, struct common_mess
             if (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_SET) {
                 // TODO: implement for admin
                 printf("Received USER_DESCRIPTION: %s\n", tlv->payload.user_description);
+
+                ret = ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Not supported");
+                if (ret) {
+                    return ret;
+                }
             } else {
                 ret = ptp_handle_management_user_description_get(state, request);
             }

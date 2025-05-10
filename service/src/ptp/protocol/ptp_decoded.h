@@ -6,6 +6,8 @@
 
 #define PTP_MAX_TLV_COUNT 8
 
+#define PTP_USER_DESCRIPTION_SIZE 128
+#define PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE 50
 
 /*
     General types
@@ -32,12 +34,18 @@ struct ptp_decoded_clock_quality {
 */
 
 union ptp_decoded_management_tlv_payload {
-    char user_description[129];
+    char user_description[PTP_USER_DESCRIPTION_SIZE + 1];
 };
 
 struct ptp_decoded_management_tlv {
     enum ptp_management_id id;
     union ptp_decoded_management_tlv_payload payload; 
+};
+
+struct ptp_decoded_management_error_status_tlv {
+    enum ptp_management_error_id error_id;
+    enum ptp_management_id id;
+    char display_data[PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE + 1]; 
 };
 
 struct ptp_decoded_request_unicast_transmission_tlv {
@@ -81,6 +89,7 @@ struct ptp_decoded_tlv {
 
     union {
         struct ptp_decoded_management_tlv management;
+        struct ptp_decoded_management_error_status_tlv management_error_status;
         struct ptp_decoded_request_unicast_transmission_tlv request_unicast;
         struct ptp_decoded_grant_unicast_transmission_tlv grant_unicast;
         struct ptp_decoded_cancel_unicast_transmission_tlv cancel_unicast;

@@ -205,7 +205,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
                 return -1;
             }
 
-            header->length = strnlen(input->payload.user_description, 128);
+            header->length = strnlen(input->payload.user_description, PTP_USER_DESCRIPTION_SIZE);
             int actual_length = header->length + (~header->length & 0x1); // Add padding to get 2-byte alignment
 
             if (head + actual_length > tail) {
@@ -229,6 +229,41 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
     return 0;
 }
 
+static int ptp_encode_management_error_status_tlv(uint8_t **output, struct ptp_decoded_management_error_status_tlv *input, uint8_t *const tail) {
+    uint8_t *head = *output;
+
+    struct ptp_encoded_management_error_status_tlv *payload = (struct ptp_encoded_management_error_status_tlv *)head;
+    head += sizeof(struct ptp_encoded_management_error_status_tlv);
+
+    if (head > tail) {
+        return -1;
+    }
+
+    payload->management_error_id = htobe16((uint16_t)input->error_id);
+    payload->management_id = htobe16((uint16_t)input->id);
+
+    struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)head;
+    head += sizeof(*header);
+
+    if (head > tail) {
+        return -1;
+    }
+
+    header->length = strnlen(input->display_data, PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE);
+    int actual_length = header->length + (~header->length & 0x1); // Add padding to get 2-byte alignment
+
+    if (head + actual_length > tail) {
+        return -1;
+    }
+
+    memcpy((char *)head, input->display_data, header->length);
+
+    head += actual_length;
+    *output = head;
+
+    return 0;
+}
+
 static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8_t *const tail) {
     int ret;
     uint8_t *head = *output;
@@ -246,6 +281,15 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
     switch (input->type) {
         case PTP_TLV_TYPE_MANAGEMENT: {
             ret = ptp_encode_management_tlv(&head, &input->payload.management, tail);
+            if (ret) {
+                return ret;
+            }
+
+            break;
+        }
+
+        case PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS: {
+            ret = ptp_encode_management_error_status_tlv(&head, &input->payload.management_error_status, tail);
             if (ret) {
                 return ret;
             }
