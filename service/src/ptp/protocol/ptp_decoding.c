@@ -183,35 +183,67 @@ static int ptp_decode_payload(struct ptp_decoded_message *output, uint8_t **inpu
     return 0;
 }
 
+static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, uint8_t **input, uint8_t *const tlv_tail) {
+    uint8_t *head = *input;
+
+    struct ptp_encoded_management_tlv *payload = (struct ptp_encoded_management_tlv *)head;
+    head += sizeof(struct ptp_encoded_management_tlv);
+
+    if (head > tlv_tail) {
+        return -1;
+    }
+
+    output->id = (enum ptp_management_id)be16toh(payload->management_id);
+
+    switch (output->id) {
+        case PTP_MANAGEMENT_ID_USER_DESCRIPTION: {
+            struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)head;
+            head += sizeof(*header);
+
+            if (header->length > 128) {
+                return -1;
+            }
+
+            if (head + header->length > tlv_tail) {
+                return -1;
+            }
+
+            strncpy(output->payload.user_description, (char *)head, header->length);
+            output->payload.user_description[128] = '\0';
+
+            break;
+        }
+
+        default: {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
 static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8_t *const tail) {
+    int ret;
     uint8_t *head = *input;
 
     struct ptp_encoded_tlv_header *header = (struct ptp_encoded_tlv_header *)head;
     
     output->type = (enum ptp_tlv_type)be16toh(header->type);
-    const int length = be16toh(header->length);
+    const int length = be16toh(header->length); // Vulnerability (signed conversion bug)
 
     head += sizeof(struct ptp_encoded_tlv_header);
-
     uint8_t *const tlv_tail = head + length;
 
-    if (head > tail) {
+    if (head > tail || tlv_tail > tail) {
         return -1;
     }
 
     switch (output->type) {
         case PTP_TLV_TYPE_MANAGEMENT: {
-            struct ptp_encoded_management_tlv *payload = (struct ptp_encoded_management_tlv *)head;
-            head += sizeof(struct ptp_encoded_management_tlv);
-
-            if (head > tail || head > tlv_tail) {
-                return -1;
+            ret = ptp_decode_management_tlv(&output->payload.management, &head, tlv_tail);
+            if (ret) {
+                return ret;
             }
-
-            output->payload.management.id = (enum ptp_management_id)be16toh(payload->management_id);
-
-            output->payload.management.data = head;
-            output->payload.management.data_length = tlv_tail - head;
 
             break;
         }
@@ -220,7 +252,7 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
             struct ptp_encoded_request_unicast_transmission_tlv *payload = (struct ptp_encoded_request_unicast_transmission_tlv *)head;
             head += sizeof(struct ptp_encoded_request_unicast_transmission_tlv);
 
-            if (head > tail || head > tlv_tail) {
+            if (head > tlv_tail) {
                 return -1;
             }
 
@@ -235,7 +267,7 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
             struct ptp_encoded_grant_unicast_transmission_tlv *payload = (struct ptp_encoded_grant_unicast_transmission_tlv *)head;
             head += sizeof(struct ptp_encoded_grant_unicast_transmission_tlv);
 
-            if (head > tail || head > tlv_tail) {
+            if (head > tlv_tail) {
                 return -1;
             }
 
@@ -251,7 +283,7 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
             struct ptp_encoded_cancel_unicast_transmission_tlv *payload = (struct ptp_encoded_cancel_unicast_transmission_tlv *)head;
             head += sizeof(struct ptp_encoded_cancel_unicast_transmission_tlv);
 
-            if (head > tail || head > tlv_tail) {
+            if (head > tlv_tail) {
                 return -1;
             }
 
@@ -265,7 +297,7 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
             struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv *payload = (struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv *)head;
             head += sizeof(struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv);
 
-            if (head > tail || head > tlv_tail) {
+            if (head > tlv_tail) {
                 return -1;
             }
 
@@ -285,7 +317,7 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
             struct ptp_encoded_authetication_tlv *payload = (struct ptp_encoded_authetication_tlv *)head;
             head += sizeof(struct ptp_encoded_authetication_tlv);
 
-            if (head > tail || head > tlv_tail) {
+            if (head > tlv_tail) {
                 return -1;
             }
 

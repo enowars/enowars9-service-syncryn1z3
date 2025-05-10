@@ -31,13 +31,14 @@ struct ptp_decoded_clock_quality {
     TLVs
 */
 
-struct ptp_decoded_management_tlv {
-    enum ptp_management_id id;
-
-    void *data;
-    int data_length;  
+union ptp_decoded_management_tlv_payload {
+    char user_description[129];
 };
 
+struct ptp_decoded_management_tlv {
+    enum ptp_management_id id;
+    union ptp_decoded_management_tlv_payload payload; 
+};
 
 struct ptp_decoded_request_unicast_transmission_tlv {
     enum ptp_message_type type;

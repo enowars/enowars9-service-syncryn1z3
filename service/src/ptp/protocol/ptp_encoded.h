@@ -49,6 +49,11 @@ struct ptp_encoded_clock_quality {
 
 _Static_assert(sizeof(struct ptp_encoded_clock_quality) == 4);
 
+struct ptp_encoded_text_header {
+    uint8_t length;
+} __attribute__((packed, aligned(1)));
+
+_Static_assert(sizeof(struct ptp_encoded_text_header) == 1);
 
 /*
     Messages

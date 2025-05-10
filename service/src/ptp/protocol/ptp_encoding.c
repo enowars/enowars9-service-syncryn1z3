@@ -182,9 +182,55 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
     *output = head;
 
     return 0;
+}   
+
+static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_management_tlv *input, uint8_t *const tail) {
+    uint8_t *head = *output;
+
+    struct ptp_encoded_management_tlv *payload = (struct ptp_encoded_management_tlv *)head;
+    head += sizeof(struct ptp_encoded_management_tlv);
+
+    if (head > tail) {
+        return -1;
+    }
+
+    payload->management_id = htobe16((uint16_t)input->id);
+
+    switch (input->id) {
+        case PTP_MANAGEMENT_ID_USER_DESCRIPTION: {
+            struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)head;
+            head += sizeof(*header);
+
+            if (head > tail) {
+                return -1;
+            }
+
+            header->length = strnlen(input->payload.user_description, 128);
+            int actual_length = header->length + (~header->length & 0x1); // Add padding to get 2-byte alignment
+
+            if (head + actual_length > tail) {
+                return -1;
+            }
+
+            memcpy((char *)head, input->payload.user_description, header->length);
+
+            head += actual_length;
+
+            break;
+        }
+
+        default: {
+            return -1;
+        }
+    }
+
+    *output = head;
+
+    return 0;
 }
 
 static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8_t *const tail) {
+    int ret;
     uint8_t *head = *output;
 
     struct ptp_encoded_tlv_header *header = (struct ptp_encoded_tlv_header *)head;
@@ -199,17 +245,10 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
 
     switch (input->type) {
         case PTP_TLV_TYPE_MANAGEMENT: {
-            struct ptp_encoded_management_tlv *payload = (struct ptp_encoded_management_tlv *)head;
-            head += sizeof(struct ptp_encoded_management_tlv);
-
-            if (head + input->payload.management.data_length > tail) {
-                return -1;
+            ret = ptp_encode_management_tlv(&head, &input->payload.management, tail);
+            if (ret) {
+                return ret;
             }
-
-            payload->management_id = htobe16((uint16_t)input->payload.management.id);
-            memcpy(head, input->payload.management.data, input->payload.management.data_length);
-
-            head += input->payload.management.data_length;
 
             break;
         }
