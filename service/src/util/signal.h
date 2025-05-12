@@ -26,7 +26,7 @@ static inline int util_wait_for_exit() {
     int signal;
 
     sigemptyset(&set);
-    sigaddset(&set, SIGINT);
+    //sigaddset(&set, SIGINT); // Disabled for debugging
     sigaddset(&set, SIGTERM);
 
     ret = sigprocmask(SIG_BLOCK, &set, NULL);

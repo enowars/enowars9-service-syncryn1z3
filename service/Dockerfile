@@ -18,7 +18,7 @@ RUN setcap CAP_NET_BIND_SERVICE+ep build/bin/ptp-master
 FROM debian:bookworm-slim
 
 # Add runtime dependencies 
-RUN apt-get update && apt-get install -y tini gosu adduser openssl libsqlite3-0 && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y tini gosu adduser openssl libsqlite3-0 gdbserver && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create a seperate user and chown new directories if necessary
 RUN addgroup --system service
