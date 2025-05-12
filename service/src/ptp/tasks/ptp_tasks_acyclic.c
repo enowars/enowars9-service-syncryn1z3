@@ -10,6 +10,7 @@
 #include <ptp/protocol/ptp_constants.h>
 #include <ptp/protocol/ptp_protocol.h>
 #include <ptp/security/ptp_security.h>
+#include <ptp/port/ptp_port.h>
 #include <ptp/tasks/ptp_tasks.h>
 #include <ptp/peer/ptp_peer.h>
 #include <common/common_types.h>
@@ -34,7 +35,7 @@ static int ptp_management_error(struct ptp_state *state, struct common_message_i
     response->message.sequence_id = request->message.sequence_id;
     response->message.flags = PTP_FLAG_UNICAST;
 
-    response->message.payload.management.action = PTP_MANAGEMENT_ACTION_RESPONSE;
+    response->message.payload.management.action = (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_COMMAND) ? PTP_MANAGEMENT_ACTION_ACKNOWLEDGE : PTP_MANAGEMENT_ACTION_RESPONSE;
     response->message.payload.management.starting_boundary_hops = 0;
     response->message.payload.management.boundary_hops = 0;
     memcpy(&response->message.payload.management.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
@@ -97,6 +98,55 @@ static int ptp_handle_management_user_description_get(struct ptp_state *state, s
     response->message.tlvs[0].type = PTP_TLV_TYPE_MANAGEMENT;
     response->message.tlvs[0].payload.management.id = PTP_MANAGEMENT_ID_USER_DESCRIPTION;
     strncpy(response->message.tlvs[0].payload.management.payload.user_description, entry.user_description, PTP_USER_DESCRIPTION_SIZE);
+
+    response->message.tlv_count = 1;
+
+    ret = ptp_encode_and_enqueue_message(state, response);
+    if (ret) {
+        goto out;
+    }
+    
+    return 0;
+
+out:
+    util_mempool_put(response);
+    return ret;
+}
+
+static int ptp_handle_management_port_claim(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_management_tlv *tlv) {
+    int ret;
+    struct ptp_port_entry entry;
+    struct common_message_info *response;
+
+    entry.port = request->message.payload.management.target_port_id.port;
+    entry.active = true;
+    strncpy(entry.secret, tlv->payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
+    strncpy(entry.user_description, tlv->payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);
+
+    ret = ptp_port_db_set(&state->port_db, &entry);
+    if (ret) {
+        return ret;
+    }
+
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id.port);
+    if (ret) {
+        return ret;
+    }
+
+    memcpy(&response->address, &request->address, sizeof(request->address));
+
+    response->message.type = PTP_MESSAGE_TYPE_MANAGEMENT;
+    response->message.sequence_id = request->message.sequence_id;
+    response->message.flags = PTP_FLAG_UNICAST;
+
+    response->message.payload.management.action = PTP_MANAGEMENT_ACTION_ACKNOWLEDGE;
+    response->message.payload.management.starting_boundary_hops = 0;
+    response->message.payload.management.boundary_hops = 0;
+    memcpy(&response->message.payload.management.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
+
+    // Send values back
+    response->message.tlvs[0].type = PTP_TLV_TYPE_MANAGEMENT;
+    memcpy(&response->message.tlvs[0].payload, tlv, sizeof(*tlv));
 
     response->message.tlv_count = 1;
 
@@ -235,23 +285,42 @@ static int ptp_handle_tlv_management(struct ptp_state *state, struct common_mess
 
     switch (tlv->id) {
         case PTP_MANAGEMENT_ID_USER_DESCRIPTION: {
-            if (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_SET) {
-                // TODO: implement for admin
-                printf("Received USER_DESCRIPTION: %s\n", tlv->payload.user_description);
-
-                ret = ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Not supported");
+            if (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_GET) {
+                ret = ptp_handle_management_user_description_get(state, request);
                 if (ret) {
                     return ret;
                 }
             } else {
-                ret = ptp_handle_management_user_description_get(state, request);
+                ret = ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Action not supported");
+                if (ret) {
+                    return ret;
+                }
+            }
+
+            break;
+        }
+
+        case PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM: {
+            if (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_COMMAND) {
+                ret = ptp_handle_management_port_claim(state, request, tlv);
+                if (ret) {
+                    return ret;
+                }
+            } else {
+                ret = ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Action not supported");
+                if (ret) {
+                    return ret;
+                }
             }
 
             break;
         }
 
         default: {
-            return -EINVAL;
+            ret = ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Management ID not supported");
+            if (ret) {
+                return ret;
+            }
         }
     }
 

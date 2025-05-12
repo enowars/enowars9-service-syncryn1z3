@@ -1,4 +1,5 @@
 #include <endian.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <ptp/protocol/ptp_encoded.h>
@@ -198,23 +199,72 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
 
     switch (input->id) {
         case PTP_MANAGEMENT_ID_USER_DESCRIPTION: {
-            struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)head;
-            head += sizeof(*header);
+            uint8_t *string_head = head;
+            int total_length = 0;
 
-            if (head > tail) {
+            struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)string_head;
+            string_head += sizeof(*header);
+
+            if (string_head > tail) {
                 return -1;
             }
 
             header->length = strnlen(input->payload.user_description, PTP_USER_DESCRIPTION_SIZE);
-            int actual_length = header->length + (~header->length & 0x1); // Add padding to get 2-byte alignment
+            total_length += sizeof(*header) + header->length;
+            int actual_length = total_length + (total_length & 0x1); // Add padding to get 2-byte alignment
 
             if (head + actual_length > tail) {
                 return -1;
             }
 
-            memcpy((char *)head, input->payload.user_description, header->length);
+            memcpy((char *)string_head, input->payload.user_description, header->length);
 
             head += actual_length;
+
+            break;
+        }
+
+        case PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM: {
+            uint8_t *string_head = head;
+            int total_length = 0;
+
+            struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)string_head;
+            string_head += sizeof(*header);
+
+            if (string_head > tail) {
+                return -1;
+            }
+
+            header->length = strnlen(input->payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
+            header->length = header->length;
+            total_length += sizeof(*header) + header->length;
+
+            if (string_head + header->length > tail) {
+                return -1;
+            }
+
+            memcpy((char *)string_head, input->payload.port_claim.port_secret, header->length);
+
+            string_head += header->length;
+
+            header = (struct ptp_encoded_text_header *)string_head;
+            string_head += sizeof(*header);
+
+            if (string_head > tail) {
+                return -1;
+            }
+
+            header->length = strnlen(input->payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);
+            total_length += sizeof(*header) + header->length;
+            int actual_length = total_length + (total_length & 0x1); // Add padding to get 2-byte alignment
+
+            if (head + actual_length > tail) {
+                return -1;
+            }
+
+            memcpy((char *)string_head, input->payload.port_claim.user_description, header->length);
+
+            head += total_length;
 
             break;
         }

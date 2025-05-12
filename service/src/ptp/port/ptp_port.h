@@ -2,7 +2,6 @@
 
 #include <stdint.h>
 
-#include <ptp/security/ptp_security.h>
 #include <ptp/protocol/ptp_decoded.h>
 
 struct sqlite3;
@@ -11,8 +10,8 @@ struct ptp_port_entry {
     uint16_t port;
 
     bool active;
-    uint8_t secret[PTP_SECURITY_SECRET_LENTH];
-    
+
+    char secret[PTP_PORT_SECRET_SIZE];
     char user_description[PTP_USER_DESCRIPTION_SIZE];
 };
 

@@ -1,3 +1,4 @@
+#include "ptp/protocol/ptp_decoded.h"
 #include <endian.h>
 #include <string.h>
 
@@ -210,6 +211,39 @@ static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, 
 
             strncpy(output->payload.user_description, (char *)head, header->length);
             output->payload.user_description[PTP_USER_DESCRIPTION_SIZE] = '\0';
+
+            break;
+        }
+
+        case PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM: {
+            struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)head;
+            head += sizeof(*header);
+
+            if (header->length > PTP_PORT_SECRET_SIZE) {
+                return -1;
+            }
+
+            if (head + header->length > tlv_tail) {
+                return -1;
+            }
+
+            strncpy(output->payload.port_claim.port_secret, (char *)head, header->length);
+            output->payload.port_claim.port_secret[PTP_PORT_SECRET_SIZE] = '\0';
+            head += header->length;
+
+            header = (struct ptp_encoded_text_header *)head;
+            head += sizeof(*header);
+
+            if (header->length > PTP_USER_DESCRIPTION_SIZE) {
+                return -1;
+            }
+
+            if (head + header->length > tlv_tail) {
+                return -1;
+            }
+
+            strncpy(output->payload.port_claim.user_description, (char *)head, header->length);
+            output->payload.port_claim.user_description[PTP_USER_DESCRIPTION_SIZE] = '\0';
 
             break;
         }

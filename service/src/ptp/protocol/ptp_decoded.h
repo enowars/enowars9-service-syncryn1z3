@@ -8,6 +8,7 @@
 #define PTP_MAX_TLV_COUNT 8
 
 #define PTP_USER_DESCRIPTION_SIZE 128
+#define PTP_PORT_SECRET_SIZE 100
 #define PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE 50
 
 /*
@@ -36,6 +37,11 @@ struct ptp_decoded_clock_quality {
 
 union ptp_decoded_management_tlv_payload {
     char user_description[PTP_USER_DESCRIPTION_SIZE + 1];
+
+    struct {
+        char port_secret[PTP_PORT_SECRET_SIZE + 1];
+        char user_description[PTP_USER_DESCRIPTION_SIZE + 1];
+    } port_claim;
 };
 
 struct ptp_decoded_management_tlv {

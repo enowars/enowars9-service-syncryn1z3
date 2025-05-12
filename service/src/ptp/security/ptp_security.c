@@ -59,7 +59,7 @@ int ptp_security_complete_auth_tlvs(struct ptp_state *state, struct common_messa
         unsigned int icv_length;
 
         // Calculate ICV
-        HMAC(EVP_sha256(), entry.secret, PTP_SECURITY_SECRET_LENTH, data, data_length, icv, &icv_length);
+        HMAC(EVP_sha256(), entry.secret, PTP_PORT_SECRET_SIZE, data, data_length, icv, &icv_length);
 
         // Truncate to 128 bits
         memcpy(tlv->payload.authentication.icv, icv, PTP_HMAC_128_SIZE);
@@ -71,20 +71,23 @@ int ptp_security_complete_auth_tlvs(struct ptp_state *state, struct common_messa
 int ptp_security_check_auth(struct ptp_state *state, struct common_message_info *info, uint16_t port) {
     int ret;
     bool authenticated = false;
+
+    struct ptp_port_entry entry;
+    entry.port = port;
+    ret = ptp_port_db_get(&state->port_db, &entry);
+    if (ret) {
+        return ret;
+    }
+
+    // Only require authentication on active ports
+    authenticated = !entry.active;
     
     for (int i = info->message.tlv_count - 1; i >= 0; --i) {
         struct ptp_decoded_tlv *tlv = &info->message.tlvs[i];
 
-        if (tlv->type != PTP_TLV_TYPE_AUTHENTICATION) {
+        if (tlv->type != PTP_TLV_TYPE_AUTHENTICATION || !entry.active) {
             tlv->authenticated = authenticated;
             continue;
-        }
-
-        struct ptp_port_entry entry;
-        entry.port = port;
-        ret = ptp_port_db_get(&state->port_db, &entry);
-        if (ret) {
-            return ret;
         }
 
         const uint8_t *data = (const uint8_t *)info->buffer.data;
@@ -93,7 +96,7 @@ int ptp_security_check_auth(struct ptp_state *state, struct common_message_info 
         unsigned int icv_length;
 
         // Calculate ICV
-        HMAC(EVP_sha256(), entry.secret, PTP_SECURITY_SECRET_LENTH, data, data_length, icv, &icv_length);
+        HMAC(EVP_sha256(), entry.secret, PTP_PORT_SECRET_SIZE, data, data_length, icv, &icv_length);
 
         // Truncate to 128 bits and compare
         ret = memcmp(tlv->payload.authentication.icv, icv, PTP_HMAC_128_SIZE);

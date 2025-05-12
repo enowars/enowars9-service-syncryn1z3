@@ -6,8 +6,6 @@
 #include <common/common_types.h>
 #include <ptp/protocol/ptp_decoded.h>
 
-#define PTP_SECURITY_SECRET_LENTH 100
-
 struct ptp_state;
 
 /**
