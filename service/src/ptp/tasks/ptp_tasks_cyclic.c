@@ -20,7 +20,7 @@ static int ptp_send_announce(void *user_ptr, struct ptp_peer *peer) {
     }
     
     struct common_message_info *info;
-    ret = ptp_get_and_init_message(state, &info, COMMON_PORT_TYPE_EVENT);
+    ret = ptp_get_and_init_message(state, &info, COMMON_PORT_TYPE_EVENT, 0); // TODO: set correct port
     if (ret) {
         return ret;
     }
@@ -35,7 +35,7 @@ static int ptp_send_announce(void *user_ptr, struct ptp_peer *peer) {
     info->message.payload.announce.timestamp = util_get_time_ns();
     info->message.payload.announce.grandmaster_priority = state->config->clock_priority;
     memcpy(&info->message.payload.announce.grandmaster_clock_quality, &state->config->clock_quality, sizeof(state->config->clock_quality));
-    memcpy(&info->message.payload.announce.grandmaster_id, &state->config->port_id.clock_id, sizeof(state->config->port_id.clock_id));
+    memcpy(&info->message.payload.announce.grandmaster_id, &state->config->clock_id, sizeof(state->config->clock_id));
     info->message.payload.announce.steps_removed = 0;
     info->message.payload.announce.time_source = PTP_TIME_SOURCE_INTERNAL_OSCILLATOR;
 
@@ -60,7 +60,7 @@ static int ptp_send_sync(void *user_ptr, struct ptp_peer *peer) {
     }
     
     struct common_message_info *info;
-    ret = ptp_get_and_init_message(state, &info, COMMON_PORT_TYPE_EVENT);
+    ret = ptp_get_and_init_message(state, &info, COMMON_PORT_TYPE_EVENT, 0); // TODO: set correct port
     if (ret) {
         return ret;
     }

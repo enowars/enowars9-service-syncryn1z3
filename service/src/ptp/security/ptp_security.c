@@ -5,14 +5,14 @@
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
 
+#include <ptp/ptp.h>
+#include <ptp/port/ptp_port.h>
 #include <ptp/protocol/ptp_decoded.h>
 #include <ptp/security/ptp_security.h>
 
 #define PTP_HMAC_128_SIZE 16
 
-static const char key[] = "password"; // TODO: Implement custom keys
-
-int ptp_security_add_auth_tlv(struct ptp_state *state, struct common_message_info *info, uint32_t key_id) {
+int ptp_security_add_auth_tlv(struct ptp_state *state, struct common_message_info *info) {
     const int index = info->message.tlv_count++;
 
     // Check that we have enough room to add TLV
@@ -24,7 +24,7 @@ int ptp_security_add_auth_tlv(struct ptp_state *state, struct common_message_inf
     info->message.tlvs[index].type = PTP_TLV_TYPE_AUTHENTICATION;
     info->message.tlvs[index].payload.authentication.spp = 0; // Only a single SA exists
     info->message.tlvs[index].payload.authentication.security_parameter_indicatior = 0; // No optional field supported
-    info->message.tlvs[index].payload.authentication.key_id = key_id;
+    info->message.tlvs[index].payload.authentication.key_id = info->message.port_id.port; // Reuse unique port
     info->message.tlvs[index].payload.authentication.icv_length = PTP_HMAC_128_SIZE; // Constant ICV length
 
     return 0;
@@ -46,13 +46,20 @@ int ptp_security_complete_auth_tlvs(struct ptp_state *state, struct common_messa
             continue;
         }
 
+        struct ptp_port_entry entry;
+        entry.port = info->message.port_id.port;
+        ret = ptp_port_db_get(&state->port_db, &entry);
+        if (ret) {
+            return ret;
+        }
+
         const uint8_t *data = (const uint8_t *)info->buffer.data;
         const unsigned int data_length = tlv->payload.authentication.icv - data;
         uint8_t icv[EVP_MAX_MD_SIZE];
         unsigned int icv_length;
 
         // Calculate ICV
-        HMAC(EVP_sha256(), key, sizeof(key), data, data_length, icv, &icv_length);
+        HMAC(EVP_sha256(), entry.secret, PTP_SECURITY_SECRET_LENTH, data, data_length, icv, &icv_length);
 
         // Truncate to 128 bits
         memcpy(tlv->payload.authentication.icv, icv, PTP_HMAC_128_SIZE);
@@ -61,7 +68,7 @@ int ptp_security_complete_auth_tlvs(struct ptp_state *state, struct common_messa
     return 0;
 }
 
-int ptp_security_check_auth(struct ptp_state *state, struct common_message_info *info) {
+int ptp_security_check_auth(struct ptp_state *state, struct common_message_info *info, uint16_t port) {
     int ret;
     bool authenticated = false;
     
@@ -73,13 +80,20 @@ int ptp_security_check_auth(struct ptp_state *state, struct common_message_info 
             continue;
         }
 
+        struct ptp_port_entry entry;
+        entry.port = port;
+        ret = ptp_port_db_get(&state->port_db, &entry);
+        if (ret) {
+            return ret;
+        }
+
         const uint8_t *data = (const uint8_t *)info->buffer.data;
         const unsigned int data_length = tlv->payload.authentication.icv - data;
         uint8_t icv[EVP_MAX_MD_SIZE];
         unsigned int icv_length;
 
         // Calculate ICV
-        HMAC(EVP_sha256(), key, sizeof(key), data, data_length, icv, &icv_length);
+        HMAC(EVP_sha256(), entry.secret, PTP_SECURITY_SECRET_LENTH, data, data_length, icv, &icv_length);
 
         // Truncate to 128 bits and compare
         ret = memcmp(tlv->payload.authentication.icv, icv, PTP_HMAC_128_SIZE);

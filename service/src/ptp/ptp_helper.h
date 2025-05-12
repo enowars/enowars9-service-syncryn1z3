@@ -1,6 +1,7 @@
 #pragma once
 
 #include <endian.h>
+#include <stdint.h>
 #include <string.h>
 #include <errno.h>
 
@@ -15,7 +16,7 @@
 #include <util/ring.h>
 #include <util/mempool.h>
 
-static int ptp_get_and_init_message(struct ptp_state *state, struct common_message_info **info, enum common_port_type port_type) {
+static int ptp_get_and_init_message(struct ptp_state *state, struct common_message_info **info, enum common_port_type port_type, uint16_t port) {
     *info = (struct common_message_info *)util_mempool_get(&state->mempool);
     if (!info) {
         return -ENOMEM;
@@ -28,7 +29,8 @@ static int ptp_get_and_init_message(struct ptp_state *state, struct common_messa
     (*info)->message.domain = ptp_domain;
     (*info)->message.log_message_interval = 0x7f;
 
-    memcpy(&(*info)->message.port_id, &state->config->port_id, sizeof(state->config->port_id));
+    memcpy(&(*info)->message.port_id.clock_id, &state->config->clock_id, sizeof(state->config->clock_id));
+    (*info)->message.port_id.port = port;
 
     return 0;
 }

@@ -148,6 +148,11 @@ int ptp_setup(struct ptp_state *state, struct ptp_config *config) {
         return ret; 
     }
 
+    ret = ptp_port_db_setup(&state->port_db, state->config->port_db_filename);
+    if (ret) {
+        return ret; 
+    }
+
     return 0;
 }
     
@@ -170,6 +175,11 @@ int ptp_cleanup(struct ptp_state *state) {
     }
 
     ret = ptp_peer_db_cleanup(&state->peer_db);
+    if (ret) {
+        return ret; 
+    }
+
+    ret = ptp_port_db_cleanup(&state->port_db);
     if (ret) {
         return ret; 
     }

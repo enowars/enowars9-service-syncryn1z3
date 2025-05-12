@@ -7,12 +7,13 @@
 #include <ptp/protocol/ptp_protocol.h>
 #include <ptp/tasks/ptp_tasks.h>
 #include <ptp/peer/ptp_peer.h>
+#include <ptp/port/ptp_port.h>
 #include <common/common_types.h>
 #include <util/ring.h>
 #include <util/mempool.h>
 
 struct ptp_config {
-    struct ptp_decoded_port_id port_id;
+    ptp_decoded_clock_id_t clock_id;
     uint16_t clock_priority;
     struct ptp_decoded_clock_quality clock_quality;
 
@@ -23,6 +24,7 @@ struct ptp_config {
     uint64_t log_sync_interval;
 
     const char *peer_db_filename;
+    const char *port_db_filename;
 };
 
 struct ptp_state {
@@ -39,6 +41,7 @@ struct ptp_state {
     struct util_mempool mempool;
 
     struct ptp_peer_db peer_db;
+    struct ptp_port_db port_db;
 
     struct ptp_tasks tasks;
 };

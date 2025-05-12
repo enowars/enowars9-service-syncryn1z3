@@ -23,7 +23,7 @@ static int ptp_management_error(struct ptp_state *state, struct common_message_i
 
     va_start(va_args, format);
 
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL);
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id.port);
     if (ret) {
         return ret;
     }
@@ -50,7 +50,7 @@ static int ptp_management_error(struct ptp_state *state, struct common_message_i
 
     response->message.tlv_count = 1;
 
-    ret = ptp_security_add_auth_tlv(state, response, 0);
+    ret = ptp_security_add_auth_tlv(state, response);
     if (ret) {
         goto out;
     }
@@ -69,9 +69,16 @@ out:
 
 static int ptp_handle_management_user_description_get(struct ptp_state *state, struct common_message_info *request) {
     int ret;
+    struct ptp_port_entry entry;
     struct common_message_info *response;
 
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL);
+    entry.port = request->message.payload.management.target_port_id.port;
+    ret = ptp_port_db_get(&state->port_db, &entry);
+    if (ret) {
+        return ret;
+    }
+
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id.port);
     if (ret) {
         return ret;
     }
@@ -89,7 +96,7 @@ static int ptp_handle_management_user_description_get(struct ptp_state *state, s
 
     response->message.tlvs[0].type = PTP_TLV_TYPE_MANAGEMENT;
     response->message.tlvs[0].payload.management.id = PTP_MANAGEMENT_ID_USER_DESCRIPTION;
-    strncpy(response->message.tlvs[0].payload.management.payload.user_description, "1234test", PTP_USER_DESCRIPTION_SIZE); // TODO: return variable
+    strncpy(response->message.tlvs[0].payload.management.payload.user_description, entry.user_description, PTP_USER_DESCRIPTION_SIZE);
 
     response->message.tlv_count = 1;
 
@@ -132,7 +139,7 @@ static int ptp_handle_tlv_request_unicast(struct ptp_state *state, struct common
     }
 
     // Build response
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL);
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.signaling.target_port_id.port);
     if (ret) {
         return ret;
     }
@@ -192,7 +199,7 @@ static int ptp_handle_tlv_cancel_unicast(struct ptp_state *state, struct common_
     }
 
     // Build response
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL);
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.signaling.target_port_id.port);
     if (ret) {
         return ret;
     }
@@ -259,7 +266,7 @@ static int ptp_handle_message_delay_request(struct ptp_state *state, struct comm
         return -EINVAL;
     }
 
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT);
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT, request->message.payload.event.port_id.port);
     if (ret) {
         return ret;
     }
@@ -292,7 +299,7 @@ static int ptp_handle_message_signaling(struct ptp_state *state, struct common_m
         return -EINVAL;
     }
 
-    ret = memcmp(&request->message.payload.signaling.target_port_id, &state->config->port_id, sizeof(state->config->port_id));
+    ret = memcmp(&request->message.payload.signaling.target_port_id.clock_id, &state->config->clock_id, sizeof(state->config->clock_id));
     if (ret) {
         return -EINVAL;
     }
@@ -336,14 +343,13 @@ static int ptp_handle_message_management(struct ptp_state *state, struct common_
         return -EINVAL;
     }
 
-    // TODO: support all 1s clock/port ids
-    ret = memcmp(&request->message.payload.management.target_port_id, &state->config->port_id, sizeof(state->config->port_id));
+    ret = memcmp(&request->message.payload.management.target_port_id.clock_id, &state->config->clock_id, sizeof(state->config->clock_id));
     if (ret) {
         return -EINVAL;
     }
 
     // Only require authetication on management messages
-    ret = ptp_security_check_auth(state, request);
+    ret = ptp_security_check_auth(state, request, request->message.payload.management.target_port_id.port);
     if (ret) {
         ret = ptp_management_error(state, request, ptp_management_error_id(ret), PTP_MANAGEMENT_ID_NULL, "Authentication failed");
         if (ret) {
@@ -370,7 +376,7 @@ static int ptp_handle_message_management(struct ptp_state *state, struct common_
             }
 
             default: {
-                return -EINVAL;
+                continue;
             }
         }
     }

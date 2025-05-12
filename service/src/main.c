@@ -48,7 +48,7 @@ void parse_cli(int argc, char *argv[], struct main_config *config) {
                     usage(argv[0]);
                 }
 
-                config->ptp.port_id.clock_id[7] = index;
+                config->ptp.clock_id[7] = index;
                 break;
             }
 
@@ -75,8 +75,7 @@ int main(int argc, char *argv[]) {
     // Locally administered OUI range
     static const ptp_decoded_clock_id_t clock_id = {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-    memcpy(state.config.ptp.port_id.clock_id, clock_id, sizeof(clock_id));
-    state.config.ptp.port_id.port = 1;
+    memcpy(state.config.ptp.clock_id, clock_id, sizeof(clock_id));
     state.config.ptp.clock_priority = 0;
     state.config.ptp.clock_quality.clock_class = PTP_CLOCK_CLASS_APPLICATION_SPECIFIC;
     state.config.ptp.clock_quality.clock_accuracy = PTP_CLOCK_ACCURACY_10_MS;
@@ -88,6 +87,7 @@ int main(int argc, char *argv[]) {
     state.config.ptp.log_sync_interval = 0; // 1s
 
     state.config.ptp.peer_db_filename = "/data/peers.db";
+    state.config.ptp.port_db_filename = "/data/ports.db";
 
     state.config.socket.multicast_address = ptp_default_address;
     state.config.socket.event_port = ptp_default_event_port;
