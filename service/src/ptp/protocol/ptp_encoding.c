@@ -451,7 +451,7 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
     return 0;
 }
 
-int ptp_encode_message(uint8_t *output, struct ptp_decoded_message *input, int length) {
+int ptp_encode_message(uint8_t *output, struct ptp_decoded_message *input, short length) {
     int ret;
 
     uint8_t *head = output;

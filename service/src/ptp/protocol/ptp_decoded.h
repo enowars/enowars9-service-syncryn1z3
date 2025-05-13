@@ -88,7 +88,7 @@ struct ptp_decoded_authentication_tlv {
     uint32_t key_id;
 
     uint8_t *icv;
-    int icv_length;    
+    short icv_length;    
 };
 
 struct ptp_decoded_tlv {

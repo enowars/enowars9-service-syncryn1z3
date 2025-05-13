@@ -35,7 +35,7 @@ static int ptp_management_error(struct ptp_state *state, struct common_message_i
     response->message.sequence_id = request->message.sequence_id;
     response->message.flags = PTP_FLAG_UNICAST;
 
-    response->message.payload.management.action = (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_COMMAND) ? PTP_MANAGEMENT_ACTION_ACKNOWLEDGE : PTP_MANAGEMENT_ACTION_RESPONSE;
+    response->message.payload.management.action = ptp_managment_response_action(request->message.payload.management.action);
     response->message.payload.management.starting_boundary_hops = 0;
     response->message.payload.management.boundary_hops = 0;
     memcpy(&response->message.payload.management.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
@@ -420,7 +420,7 @@ static int ptp_handle_message_management(struct ptp_state *state, struct common_
     // Only require authetication on management messages
     ret = ptp_security_check_auth(state, request, request->message.payload.management.target_port_id.port);
     if (ret) {
-        ret = ptp_management_error(state, request, ptp_management_error_id(ret), PTP_MANAGEMENT_ID_NULL, "Authentication failed");
+        ret = ptp_management_error(state, request, ptp_management_error_id(ret), PTP_MANAGEMENT_ID_NULL, "Authentication fail");
         if (ret) {
             return ret;
         }

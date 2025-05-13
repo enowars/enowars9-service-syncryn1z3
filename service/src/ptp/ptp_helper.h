@@ -110,3 +110,20 @@ static inline enum ptp_management_error_id ptp_management_error_id(int error) {
 
     return PTP_MANAGEMENT_ERROR_ID_IMPLEMENTATION_SPECIFIC + error;
 }
+
+static inline enum ptp_management_action ptp_managment_response_action(enum ptp_management_action request_action) {
+    switch (request_action) {
+        case PTP_MANAGEMENT_ACTION_GET:
+        case PTP_MANAGEMENT_ACTION_SET: {
+            return PTP_MANAGEMENT_ACTION_RESPONSE;
+        }
+
+        case PTP_MANAGEMENT_ACTION_COMMAND: {
+            return PTP_MANAGEMENT_ACTION_ACKNOWLEDGE;
+        }
+
+        default: {
+            return 0; // TODO: Hide this better
+        }
+    }
+}

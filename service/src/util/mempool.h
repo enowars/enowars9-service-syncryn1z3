@@ -19,7 +19,7 @@ struct util_mempool {
     int descriptor_unit_item_length;
 };
 
-static inline int util_mempool_setup(struct util_mempool *mempool, int length, int count) {
+static inline int util_mempool_setup(struct util_mempool *mempool, short length, int count) {
     int aligned_item_length = sizeof(struct util_mempool_item_descriptor) + length;
     if (length % sizeof(struct util_mempool_item_descriptor)) {
         aligned_item_length += sizeof(struct util_mempool_item_descriptor) - (length % sizeof(struct util_mempool_item_descriptor));

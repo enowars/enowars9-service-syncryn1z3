@@ -19,7 +19,7 @@ struct common_message_info {
 
     struct {
         uint8_t data[COMMON_BUFFER_SIZE];
-        int length;
+        short length;
     } buffer;
 
     struct {
