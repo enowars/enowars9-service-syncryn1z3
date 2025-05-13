@@ -5,6 +5,11 @@
 #include <ptp/protocol/ptp_encoded.h>
 #include <ptp/protocol/ptp_protocol.h>
 
+#define ETHERNET_HEADER_SIZE 14
+#define IPV4_HEADER_SIZE 20
+#define UDP_HEADER_SIZE 8
+#define NETWORK_OVERHEAD ETHERNET_HEADER_SIZE + IPV4_HEADER_SIZE + UDP_HEADER_SIZE
+
 static void ptp_encode_port_id(struct ptp_encoded_port_id *output, struct ptp_decoded_port_id *input) {
     memcpy(output->clock_id, input->clock_id, sizeof(input->clock_id));
     output->port = htobe16(input->port);
@@ -489,11 +494,11 @@ int ptp_encode_message(uint8_t *output, struct ptp_decoded_message *input, int l
     int actual_length = head - output;
 
     // Insert padding to align packet size
-    if (actual_length % PTP_MESSAGE_ALIGNMENT) {
+    if (actual_length + NETWORK_OVERHEAD % PTP_MESSAGE_ALIGNMENT) {
         // TODO: Check for number of existing TLVs
         struct ptp_decoded_tlv pad_tlv;
         pad_tlv.type = PTP_TLV_TYPE_PAD;
-        pad_tlv.payload.pad.length = ~(actual_length + sizeof(struct ptp_encoded_tlv_header)) % PTP_MESSAGE_ALIGNMENT;
+        pad_tlv.payload.pad.length = -(actual_length + NETWORK_OVERHEAD + sizeof(struct ptp_encoded_tlv_header)) % PTP_MESSAGE_ALIGNMENT;
         
         ret = ptp_encode_tlv(&head, &pad_tlv, tail);
         if (ret < 0) {
