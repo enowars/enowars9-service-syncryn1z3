@@ -486,7 +486,23 @@ int ptp_encode_message(uint8_t *output, struct ptp_decoded_message *input, int l
         }
     }
 
-    const int actual_length = head - output;
+    int actual_length = head - output;
+
+    // Insert padding to align packet size
+    if (actual_length % PTP_MESSAGE_ALIGNMENT) {
+        // TODO: Check for number of existing TLVs
+        struct ptp_decoded_tlv pad_tlv;
+        pad_tlv.type = PTP_TLV_TYPE_PAD;
+        pad_tlv.payload.pad.length = ~(actual_length + sizeof(struct ptp_encoded_tlv_header)) % PTP_MESSAGE_ALIGNMENT;
+        
+        ret = ptp_encode_tlv(&head, &pad_tlv, tail);
+        if (ret < 0) {
+            return ret;
+        }
+
+        actual_length += pad_tlv.payload.pad.length + sizeof(struct ptp_encoded_tlv_header);
+    }
+
     header->length = htobe16(actual_length);
     
     return actual_length;

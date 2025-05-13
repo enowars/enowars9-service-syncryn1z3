@@ -19,6 +19,8 @@
 #define PTP_MANAGEMENT_ACTION_MASK 0x1f
 #define PTP_MANAGEMENT_ACTION_SHIFT 0
 
+#define PTP_MESSAGE_ALIGNMENT 16
+
 
 /*
     General types

