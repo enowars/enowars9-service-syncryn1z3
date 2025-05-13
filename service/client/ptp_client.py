@@ -42,7 +42,7 @@ class PtpClient:
         self.t4 = delay_response.decoded.payload.event.timestamp
         self.offset += int(((self.t1 + self.t4) - (self.t2 + self.t3)) / 2)
 
-        print("Time: {:.3f}, Offset: {:.3f}ms".format(self.get_time_ns() / 1000000000, self.offset / 1000000))
+        print("Time: {:.3f}, Offset: {:.3f}us".format(self.get_time_ns() / 1000000000, self.offset / 1000))
 
     def handle_announce(self, message):
         pass
@@ -50,18 +50,32 @@ class PtpClient:
     def get_time_ns(self):
         return time.clock_gettime_ns(time.CLOCK_MONOTONIC) + self.offset
 
-    def run(self):
-        try:
-            message = self.connection.receive()
-        except TimeoutError:
-            return
+    def run_sync(self):
+        self.connection.request_unicast_message(ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
+
+        message = self.connection.receive()
+
+        if message.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC:
+            raise RuntimeError("Expected sync message")
         
-        if message.decoded.type == ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC:
-            self.handle_sync(message)
-        if message.decoded.type == ptp_protocol.lib.PTP_MESSAGE_TYPE_DELAY_RESPONSE:
-            self.handle_delay_response(message)
-        elif message.decoded.type == ptp_protocol.lib.PTP_MESSAGE_TYPE_ANNOUNCE:
-            self.handle_announce(message)
+        self.handle_sync(message)
+
+        message = self.connection.receive()
+
+        if message.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_DELAY_RESPONSE:
+            raise RuntimeError("Expected delay response message")
+        
+        self.handle_delay_response(message)
+
+    def run_announce(self):
+        self.connection.request_unicast_message(ptp_protocol.lib.PTP_MESSAGE_TYPE_ANNOUNCE)
+
+        message = self.connection.receive()
+        
+        if message.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_ANNOUNCE:
+            raise RuntimeError("Expected announce message")
+
+        self.handle_announce(message)
 
 def main():
     with ptp_connection.PtpConnection(42) as connection:
@@ -69,7 +83,10 @@ def main():
         
         try:
             while True:
-                client.run()
+                client.run_announce()
+                client.run_sync()
+
+                time.sleep(1)
 
         except KeyboardInterrupt:
             print("See you another time!")

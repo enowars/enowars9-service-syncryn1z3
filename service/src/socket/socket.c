@@ -114,7 +114,9 @@ static void *thread_worker(void *arg) {
             receive_message(state, event.data.ptr);
         }
 
-        send_message(state);
+        do {
+            ret = send_message(state);
+        } while (!ret);
     }
 
     ret = close(epoll_fd);

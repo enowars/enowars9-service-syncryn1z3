@@ -77,26 +77,6 @@ static void ptp_set_default_address(struct common_message_info *info, enum commo
     info->address.length = sizeof(info->address.address);
 }
 
-static inline int ptp_message_type_to_peer_subsciption(enum ptp_message_type type, enum ptp_peer_subscription *subsciption) {
-    switch (type) {
-        case PTP_MESSAGE_TYPE_SYNC: {
-            *subsciption = PTP_PEER_SUBSCRIPTION_SYNC;
-            break;
-        }
-    
-        case PTP_MESSAGE_TYPE_ANNOUNCE: {
-            *subsciption = PTP_PEER_SUBSCRIPTION_ANNOUNCE;
-            break;
-        }
-    
-        default: {
-            return -EINVAL;
-        }
-    }
-    
-    return 0;
-}
-
 static inline enum ptp_management_error_id ptp_management_error_id(int error) {
     // Correctly handle negative return codes
     if (error < 0) {

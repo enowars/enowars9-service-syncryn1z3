@@ -6,7 +6,6 @@
 
 #include <ptp/protocol/ptp_protocol.h>
 #include <ptp/tasks/ptp_tasks.h>
-#include <ptp/peer/ptp_peer.h>
 #include <ptp/port/ptp_port.h>
 #include <common/common_types.h>
 #include <util/ring.h>
@@ -17,21 +16,11 @@ struct ptp_config {
     uint16_t clock_priority;
     struct ptp_decoded_clock_quality clock_quality;
 
-    uint64_t task_interval_s;
-    uint64_t peer_expiration_time_s;
-
-    uint64_t log_announce_interval;
-    uint64_t log_sync_interval;
-
-    const char *peer_db_filename;
     const char *port_db_filename;
 };
 
 struct ptp_state {
     struct ptp_config *config;
-
-    pthread_t thread;
-    volatile bool exit_flag;
 
     int event_fd;
 
@@ -40,17 +29,11 @@ struct ptp_state {
 
     struct util_mempool mempool;
 
-    struct ptp_peer_db peer_db;
     struct ptp_port_db port_db;
-
-    struct ptp_tasks tasks;
 };
 
 int ptp_setup(struct ptp_state *state, struct ptp_config *config);
 int ptp_cleanup(struct ptp_state *state);
-
-int ptp_start(struct ptp_state *state);
-int ptp_stop(struct ptp_state *state);
 
 int ptp_enqueue_message(void *user_ptr, struct common_message_info *info);
 int ptp_dequeue_message(void *user_ptr, struct common_message_info **info);

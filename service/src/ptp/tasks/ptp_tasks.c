@@ -12,10 +12,75 @@
 #include <ptp/security/ptp_security.h>
 #include <ptp/port/ptp_port.h>
 #include <ptp/tasks/ptp_tasks.h>
-#include <ptp/peer/ptp_peer.h>
 #include <common/common_types.h>
+#include <util/time.h>
 #include <util/ring.h>
 #include <util/mempool.h>
+
+static int ptp_send_sync(struct ptp_state *state, struct common_message_info *request) {
+    int ret;
+    
+    struct common_message_info *response;
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT, 0); // TODO: set correct port
+    if (ret) {
+        return ret;
+    }
+
+    memcpy(&response->address.address, &request->address.address, sizeof(response->address.address));
+    response->address.length = sizeof(response->address.address);
+
+    response->message.type = PTP_MESSAGE_TYPE_SYNC;
+    response->message.sequence_id = request->message.sequence_id;
+    response->message.log_message_interval = 0;
+
+    response->message.payload.event.timestamp = util_get_time_ns();
+
+    ret = ptp_encode_and_enqueue_message(state, response);
+    if (ret) {
+        goto out;
+    }
+    
+    return 0;
+
+out:
+    util_mempool_put(response);
+    return ret;
+}
+
+static int ptp_send_announce(struct ptp_state *state, struct common_message_info *request) {
+    int ret;
+
+    struct common_message_info *response;
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT, 0); // TODO: set correct port
+    if (ret) {
+        return ret;
+    }
+
+    memcpy(&response->address.address, &request->address.address, sizeof(response->address.address));
+    response->address.length = sizeof(response->address.address);
+
+    response->message.type = PTP_MESSAGE_TYPE_ANNOUNCE;
+    response->message.sequence_id = request->message.sequence_id;
+    response->message.log_message_interval = 0;
+
+    response->message.payload.announce.timestamp = util_get_time_ns();
+    response->message.payload.announce.grandmaster_priority = state->config->clock_priority;
+    memcpy(&response->message.payload.announce.grandmaster_clock_quality, &state->config->clock_quality, sizeof(state->config->clock_quality));
+    memcpy(&response->message.payload.announce.grandmaster_id, &state->config->clock_id, sizeof(state->config->clock_id));
+    response->message.payload.announce.steps_removed = 0;
+    response->message.payload.announce.time_source = PTP_TIME_SOURCE_INTERNAL_OSCILLATOR;
+
+    ret = ptp_encode_and_enqueue_message(state, response);
+    if (ret) {
+        goto out;
+    }
+    
+    return 0;
+
+out:
+    util_mempool_put(response);
+    return ret;
+}
 
 static int ptp_management_error(struct ptp_state *state, struct common_message_info *request, enum ptp_management_error_id error_id, enum ptp_management_id id, const char *format, ...) {
     int ret;
@@ -164,28 +229,23 @@ out:
 
 static int ptp_handle_tlv_request_unicast(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_request_unicast_transmission_tlv *tlv) {
     int ret;
-    struct ptp_peer peer;
     struct common_message_info *response;
+    int (*send_function)(struct ptp_state *, struct common_message_info *);
 
-    memcpy(&peer.port_id, &request->message.port_id, sizeof(peer.port_id));
-    memcpy(&peer.address, &request->address, sizeof(peer.address));
+    switch (tlv->type) {
+        case PTP_MESSAGE_TYPE_SYNC: {
+            send_function = ptp_send_sync;
+            break;
+        }
+        
+        case PTP_MESSAGE_TYPE_ANNOUNCE: {
+            send_function = ptp_send_announce;
+            break;
+        }
 
-    unsigned int duration = tlv->duration;
-    if (duration > state->config->peer_expiration_time_s) {
-        duration = state->config->peer_expiration_time_s;
-    }
-
-    peer.expiration = state->tasks.logical_time_s + duration;
-
-    ret = ptp_message_type_to_peer_subsciption(tlv->type, &peer.subscriptions);
-    if (ret) {
-        return ret;
-    }
-
-    // Update database entry
-    ret = ptp_peer_db_add_subscription(&state->peer_db, &peer);
-    if (ret) {
-        return ret;
+        default: {
+            return -EINVAL;
+        }
     }
 
     // Build response
@@ -203,74 +263,20 @@ static int ptp_handle_tlv_request_unicast(struct ptp_state *state, struct common
     memcpy(&response->message.payload.signaling.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
 
     response->message.tlvs[0].type = PTP_TLV_TYPE_GRANT_UNICAST_TRANSMISSION;
-    response->message.tlvs[0].payload.grant_unicast.duration = duration;
+    response->message.tlvs[0].payload.grant_unicast.duration = 0; // No duration as we only send one packet
+    response->message.tlvs[0].payload.grant_unicast.log_message_interval = 0;
     response->message.tlvs[0].payload.grant_unicast.flags = PTP_TLV_UNICAST_FLAG_MAINTAIN_REQUEST;
-    if (tlv->type == PTP_MESSAGE_TYPE_SYNC) {
-        response->message.tlvs[0].payload.grant_unicast.log_message_interval = state->config->log_sync_interval;
-    } else if (tlv->type == PTP_MESSAGE_TYPE_ANNOUNCE) {
-        response->message.tlvs[0].payload.grant_unicast.log_message_interval = state->config->log_announce_interval;
-    }
-    
-    response->message.tlv_count = 1;
-
-    ret = ptp_encode_and_enqueue_message(state, response);
-    if (ret) {
-        goto out;
-    }
-    
-    return 0;
-
-out:
-    util_mempool_put(response);
-    return ret;
-}
-
-static int ptp_handle_tlv_cancel_unicast(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_cancel_unicast_transmission_tlv *tlv) {
-    int ret;
-    struct ptp_peer peer;
-    struct common_message_info *response;
-
-    if (tlv->flags & PTP_TLV_UNICAST_FLAG_MAINTAIN_REQUEST) {
-        return 0;
-    }
-
-    memcpy(&peer.port_id, &request->message.port_id, sizeof(peer.port_id));
-    memcpy(&peer.address, &request->address, sizeof(peer.address));
-
-    ret = ptp_message_type_to_peer_subsciption(tlv->type, &peer.subscriptions);
-    if (ret) {
-        return ret;
-    }
-
-    // Update database entry
-    ret = ptp_peer_db_remove_subscription(&state->peer_db, &peer);
-    if (ret) {
-        return ret;
-    }
-
-    // Build response
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.signaling.target_port_id.port);
-    if (ret) {
-        return ret;
-    }
-
-    memcpy(&response->address, &request->address, sizeof(request->address));
-
-    response->message.type = PTP_MESSAGE_TYPE_SIGNALING;
-    response->message.sequence_id = request->message.sequence_id;
-    response->message.flags = PTP_FLAG_UNICAST;
-
-    memcpy(&response->message.payload.signaling.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
-
-    response->message.tlvs[0].type = PTP_TLV_TYPE_ACKNOWLEDGE_CANCEL_UNICAST_TRANSMISSION;
-    response->message.tlvs[0].payload.acknowledge_cancel_unicast.type = tlv->type;
-    response->message.tlvs[0].payload.acknowledge_cancel_unicast.flags = 0;
 
     response->message.tlv_count = 1;
 
     ret = ptp_encode_and_enqueue_message(state, response);
     if (ret) {
         goto out;
+    }
+
+    ret = send_function(state, request);
+    if (ret) {
+        return ret;
     }
     
     return 0;
@@ -387,17 +393,8 @@ static int ptp_handle_message_signaling(struct ptp_state *state, struct common_m
                 break;
             }
 
-            case PTP_TLV_TYPE_CANCEL_UNICAST_TRANSMISSION: {
-                ret = ptp_handle_tlv_cancel_unicast(state, request, &tlv->payload.cancel_unicast);
-                if (ret) {
-                    return ret;
-                }
-
-                break;
-            }
-
             default: {
-                return -EINVAL;
+                continue;
             }
         }
     }
@@ -453,7 +450,7 @@ static int ptp_handle_message_management(struct ptp_state *state, struct common_
     return 0;
 } 
 
-static int ptp_handle_message(struct ptp_state *state) {   
+int ptp_handle_message(struct ptp_state *state) {   
     int ret;
     struct common_message_info *info;
 
@@ -492,16 +489,4 @@ static int ptp_handle_message(struct ptp_state *state) {
 out:
     util_mempool_put(info);
     return ret;
-}
-
-int ptp_run_acyclic_tasks(struct ptp_state *state) {
-    int ret;
-
-    ret = ptp_handle_message(state);
-    if (ret) {
-        error(0, -ret, "Failed to run handle message task");
-        return ret;
-    }
-
-    return 0;
 }

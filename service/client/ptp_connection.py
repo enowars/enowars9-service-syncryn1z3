@@ -27,15 +27,9 @@ class PtpConnection:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.settimeout(0.1)
 
-        self.request_unicast_message(ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
-        self.request_unicast_message(ptp_protocol.lib.PTP_MESSAGE_TYPE_ANNOUNCE)
-
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.cancel_unicast_message(ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
-        self.cancel_unicast_message(ptp_protocol.lib.PTP_MESSAGE_TYPE_ANNOUNCE)
-
         self.socket.close()
 
     def send(self, message, event=False):
@@ -85,29 +79,3 @@ class PtpConnection:
                 return
             
         raise RuntimeError("No GRANT_UNICAST received")
-
-    def cancel_unicast_message(self, type):
-        message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_SIGNALING, self.clock_id, self.port, self.sequence_number)
-        self.sequence_number += 1
-
-        payload = message.get_payload()
-        payload.signaling.target_port_id.clock_id = (0x0200000000000000 + self.target_id).to_bytes(8, byteorder="big")
-        payload.signaling.target_port_id.port = 1
-
-        tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_CANCEL_UNICAST_TRANSMISSION)
-        tlv.payload.cancel_unicast.type = type
-        
-        self.flush()
-        self.send(message)
-
-        for i in range(10):
-            try:
-                response = self.receive()
-            except TimeoutError:
-                continue
-
-            if any(tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_ACKNOWLEDGE_CANCEL_UNICAST_TRANSMISSION for tlv in response.get_tlvs()):
-                return
-            
-        raise RuntimeError("No ACKNOWLEDGE_CANCEL_UNICAST received")
-        

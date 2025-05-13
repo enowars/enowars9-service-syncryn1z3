@@ -81,12 +81,6 @@ int main(int argc, char *argv[]) {
     state.config.ptp.clock_quality.clock_accuracy = PTP_CLOCK_ACCURACY_10_MS;
     state.config.ptp.clock_quality.offset_scaled_log_variance = 0; // TODO: Fix
 
-    state.config.ptp.task_interval_s = 1;
-    state.config.ptp.peer_expiration_time_s = 60;
-    state.config.ptp.log_announce_interval = 1; // 2s
-    state.config.ptp.log_sync_interval = 0; // 1s
-
-    state.config.ptp.peer_db_filename = "/data/peers.db";
     state.config.ptp.port_db_filename = "/data/ports.db";
 
     state.config.socket.multicast_address = ptp_default_address;
@@ -110,11 +104,6 @@ int main(int argc, char *argv[]) {
         return -ret;
     }
 
-    ret = ptp_start(&state.ptp);
-    if (ret) {
-        return -ret;
-    }
-
     ret = socket_start(&state.socket);
     if (ret) {
         return -ret;
@@ -125,11 +114,6 @@ int main(int argc, char *argv[]) {
     printf("Shutting down...\n");
 
     ret = socket_stop(&state.socket);
-    if (ret) {
-        return -ret;
-    }
-
-    ret = ptp_stop(&state.ptp);
     if (ret) {
         return -ret;
     }
