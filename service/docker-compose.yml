@@ -9,9 +9,12 @@ services:
       - ./data/:/data:rw
     # Define the port mapping (external:internal port)
     ports:
-      - "319:319"
+      - 319:319
+      #- 1234:1234
     networks:
       - testing
+
+    restart: unless-stopped
 
     mem_limit: 1g
     cpus: 1
