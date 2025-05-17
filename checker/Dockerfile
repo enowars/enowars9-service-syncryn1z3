@@ -1,22 +1,34 @@
+FROM python:3.9-bookworm AS BUILD
+
+WORKDIR /checker
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y gcc && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN python3 -m pip install cffi
+
+# Copy sources
+COPY checker/src src
+COPY service/src ../service/src
+RUN cd src && python3 build.py
+
+
 # Use a suitable base-image
-FROM ubuntu:noble
+FROM python:3.9-bookworm
 
-# Add runtime dependencies 
-RUN apt-get update && apt-get install -y tini adduser iproute2 linuxptp && apt-get clean && rm -rf /var/lib/apt/lists/*
+WORKDIR /checker
 
-# Create our mapped data volume endpoint
-RUN mkdir /data/
+# Install runtime dependencies
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
-COPY src /checker
+# Add checker user
+RUN useradd -ms /bin/bash -u 1000 checker
 
-# Copy our entrypoint.sh and make it executable
-COPY entrypoint.sh /
-RUN chmod +x /entrypoint.sh
+COPY checker/requirements.txt .
 
-# Change the working directory.
-WORKDIR /checker/
+USER checker
+RUN python3 -m pip install -r requirements.txt
 
-#EXPOSE 319
+COPY checker/src .
+COPY --from=build checker/src/*.so .
 
-# Run the service
-ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]
+ENTRYPOINT [ "/home/checker/.local/bin/gunicorn", "-c", "gunicorn.conf.py", "checker:app" ]

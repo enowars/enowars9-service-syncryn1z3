@@ -1,9 +1,4 @@
-# This file contains ignore-rules for files that are not tracked by docker for container builds.
-data/
-build/
-.git/
+data
+__pycache__
 Dockerfile
-docker-compose.yml
-.dockerignore
-.gitignore
-.env
+docker-compose.yaml

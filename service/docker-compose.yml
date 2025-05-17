@@ -1,24 +1,17 @@
 services:
   ptp-service:
     build: .
-    environment:
-      - INSTANCE_ID=42
     # The code should be copied into the container using COPY.
     # Mount the data folder writable, so that information can be persisted across restarts.
     volumes:
       - ./data/:/data:rw
     # Define the port mapping (external:internal port)
     ports:
-      - 319:319
-      #- 1234:1234
-    networks:
-      - testing
+      - 319:319/udp
+      - 320:320/udp
+      - 1234:1234
 
     restart: unless-stopped
 
     mem_limit: 1g
     cpus: 1
-
-networks:
-  testing:
-    driver: bridge

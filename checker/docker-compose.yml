@@ -1,20 +1,41 @@
 services:
   ptp-checker:
-    build: .
-    # The code should be copied into the container using COPY.
-    # Mount the data folder writable, so that information can be persisted across restarts.
-    volumes:
-      - ./data/:/data:rw
-    # Define the port mapping (external:internal port)
-    #network_mode: host
+    build:
+      dockerfile: checker/Dockerfile
+      context: ..
+    ports:
+      - 11588:8000
+    environment:
+      - MONGO_ENABLED=1
+      - MONGO_HOST=ptp-mongo
+      - MONGO_PORT=27017
+      - MONGO_USER=ptp
+      - MONGO_PASSWORD=ptp
+    mem_limit: 1G
+    memswap_limit: 2G
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
+      nproc:
+        soft: 4000
+        hard: 4000
+  # The python checkerlib requires a mongo db!
+  ptp-mongo:
+    image: mongo
     #ports:
-    #  - "319:319"
-    networks:
-      - ptp_service_testing
-
-    mem_limit: 1g
-    cpus: 1
-
-networks:
-  ptp_service_testing:
-    external: true
+    #  - 27017:27017
+    volumes:
+      - ./data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ptp
+      MONGO_INITDB_ROOT_PASSWORD: ptp
+    mem_limit: 1G
+    memswap_limit: 2G
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
+      nproc:
+        soft: 4000
+        hard: 4000
