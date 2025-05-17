@@ -156,67 +156,6 @@ static int socket_setup_port(struct socket_state *state, struct socket_instance 
         goto out; 
     }
 
-    struct ifaddrs *addresses;
-    struct ifaddrs *address_iter;
-    const char *interface_name = NULL;
-    ret = getifaddrs(&addresses);
-    if (ret) {
-        perror("Failed to get addresses");
-        goto out; 
-    }
-
-    for (address_iter = addresses; address_iter != NULL; address_iter = address_iter->ifa_next) {
-        if (address_iter->ifa_addr && AF_INET == address_iter->ifa_addr->sa_family) {
-            if (((struct sockaddr_in*)address_iter->ifa_addr)->sin_addr.s_addr == state->config->server_address) {
-                interface_name = address_iter->ifa_name;
-            }
-        }
-    }
-
-    if (interface_name == NULL) {
-        ret = -ENODEV;
-        goto out;
-    }
-
-    ret = setsockopt(instance->fd, SOL_SOCKET, SO_BINDTODEVICE, interface_name, strlen(interface_name));
-    if (ret) {
-        perror("Failed to bind to device");
-
-        ret = -1;
-        goto out;
-	}
-
-    freeifaddrs(addresses);
-
-    uint8_t ttl = 64;
-    ret = setsockopt(instance->fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
-    if (ret) {
-        perror("Failed to set multicast TTL");
-
-        ret = -1;
-        goto out;
-    }
-
-    struct ip_mreqn multicast_request;
-    multicast_request.imr_multiaddr.s_addr = state->config->multicast_address;
-    multicast_request.imr_address.s_addr = state->config->server_address;
-    multicast_request.imr_ifindex = 0;
-
-    ret = setsockopt(instance->fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &multicast_request, sizeof(multicast_request));
-    if (ret) {
-        perror("Failed to join multicast group");
-
-        goto out;
-    }
-
-    int off = 0;
-    ret = setsockopt(instance->fd, IPPROTO_IP, IP_MULTICAST_LOOP, &off, sizeof(off));
-    if (ret) {
-        perror("Failed to disable multicast loop");
-
-        goto out;
-    }
-
     printf("UDP server listening on port %d...\n", instance->port);
 
     ret = util_mempool_setup(&state->mempool, sizeof(struct common_message_info), COMMON_MEMPOOL_SIZE);

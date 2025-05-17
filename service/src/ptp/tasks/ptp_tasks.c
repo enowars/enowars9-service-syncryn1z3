@@ -141,7 +141,7 @@ static int ptp_handle_management_user_description_get(struct ptp_state *state, s
     entry.port = request->message.payload.management.target_port_id.port;
     ret = ptp_port_db_get(&state->port_db, &entry);
     if (ret) {
-        return ret;
+        return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_UNPOPULATED, PTP_MANAGEMENT_ID_USER_DESCRIPTION, "No such port");
     }
 
     ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id.port);
@@ -190,7 +190,7 @@ static int ptp_handle_management_port_claim(struct ptp_state *state, struct comm
 
     ret = ptp_port_db_set(&state->port_db, &entry);
     if (ret) {
-        return ret;
+        return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_UNPOPULATED, PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM, "Failed to claim port");
     }
 
     ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id.port);
@@ -297,10 +297,7 @@ static int ptp_handle_tlv_management(struct ptp_state *state, struct common_mess
                     return ret;
                 }
             } else {
-                ret = ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Action not supported");
-                if (ret) {
-                    return ret;
-                }
+                return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Action not supported");
             }
 
             break;
@@ -313,20 +310,14 @@ static int ptp_handle_tlv_management(struct ptp_state *state, struct common_mess
                     return ret;
                 }
             } else {
-                ret = ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Action not supported");
-                if (ret) {
-                    return ret;
-                }
+                return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Action not supported");
             }
 
             break;
         }
 
         default: {
-            ret = ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Management ID not supported");
-            if (ret) {
-                return ret;
-            }
+            return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Management ID not supported");
         }
     }
 
@@ -406,21 +397,18 @@ static int ptp_handle_message_management(struct ptp_state *state, struct common_
     int ret;
     
     if (request->port_type != COMMON_PORT_TYPE_GENERAL) {
-        return -EINVAL;
+        return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_WRONG_VALUE, PTP_MANAGEMENT_ID_NULL, "Management message received on wrong port");
     }
 
     ret = memcmp(&request->message.payload.management.target_port_id.clock_id, &state->config->clock_id, sizeof(state->config->clock_id));
     if (ret) {
-        return -EINVAL;
+        return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_UNPOPULATED, PTP_MANAGEMENT_ID_NULL, "Clock ID does not match");
     }
 
     // Only require authetication on management messages
     ret = ptp_security_check_auth(state, request, request->message.payload.management.target_port_id.port);
     if (ret) {
-        ret = ptp_management_error(state, request, ptp_management_error_id(ret), PTP_MANAGEMENT_ID_NULL, "Authentication fail");
-        if (ret) {
-            return ret;
-        }
+        return ptp_management_error(state, request, ptp_management_error_id(ret), PTP_MANAGEMENT_ID_NULL, "Authentication fail");
     }
 
     // Handle supported TLVs
@@ -430,7 +418,7 @@ static int ptp_handle_message_management(struct ptp_state *state, struct common_
         switch (tlv->type) {
             case PTP_TLV_TYPE_MANAGEMENT: {
                 if (!tlv->authenticated) {
-                    continue;
+                    return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_GENERAL, PTP_MANAGEMENT_ID_NULL, "Not authenticated");
                 }
 
                 ret = ptp_handle_tlv_management(state, request, &tlv->payload.management);

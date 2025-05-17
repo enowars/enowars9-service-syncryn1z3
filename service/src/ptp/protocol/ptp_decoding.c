@@ -210,7 +210,7 @@ static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, 
             }
 
             strncpy(output->payload.user_description, (char *)head, header->length);
-            output->payload.user_description[PTP_USER_DESCRIPTION_SIZE] = '\0';
+            output->payload.user_description[header->length] = '\0';
 
             break;
         }
@@ -228,7 +228,7 @@ static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, 
             }
 
             strncpy(output->payload.port_claim.port_secret, (char *)head, header->length);
-            output->payload.port_claim.port_secret[PTP_PORT_SECRET_SIZE] = '\0';
+            output->payload.port_claim.port_secret[header->length] = '\0';
             head += header->length;
 
             header = (struct ptp_encoded_text_header *)head;
@@ -243,7 +243,7 @@ static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, 
             }
 
             strncpy(output->payload.port_claim.user_description, (char *)head, header->length);
-            output->payload.port_claim.user_description[PTP_USER_DESCRIPTION_SIZE] = '\0';
+            output->payload.port_claim.user_description[header->length] = '\0';
 
             break;
         }

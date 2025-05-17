@@ -32,6 +32,8 @@ static int ptp_get_and_init_message(struct ptp_state *state, struct common_messa
     memcpy(&(*info)->message.port_id.clock_id, &state->config->clock_id, sizeof(state->config->clock_id));
     (*info)->message.port_id.port = port;
 
+    (*info)->port_type = port_type;
+
     return 0;
 }
 
@@ -56,25 +58,6 @@ static int ptp_encode_and_enqueue_message(struct ptp_state *state, struct common
     }
 
     return 0;
-}
-
-static void ptp_set_default_address(struct common_message_info *info, enum common_port_type port_type) {
-    info->address.address.sin_addr.s_addr = ptp_default_address;
-    info->address.address.sin_family = AF_INET;
-
-    switch (port_type) {
-        case COMMON_PORT_TYPE_EVENT: {
-            info->address.address.sin_port = htobe16(ptp_default_event_port);
-            break;
-        }
-
-        case COMMON_PORT_TYPE_GENERAL: {
-            info->address.address.sin_port = htobe16(ptp_default_general_port);
-            break;
-        }
-    }
-
-    info->address.length = sizeof(info->address.address);
 }
 
 static inline enum ptp_management_error_id ptp_management_error_id(int error) {

@@ -412,6 +412,7 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
         }
 
         case PTP_TLV_TYPE_PAD: {
+            memset(head, 0, input->payload.pad.length);
             head += input->payload.pad.length;
 
             if (head > tail) {

@@ -12,9 +12,6 @@
 #define SOCKET_INSTANCE_NUM 2 
 
 struct socket_config {
-    in_addr_t server_address;
-    in_addr_t multicast_address;
-
     uint16_t event_port;
     uint16_t general_port;
 
