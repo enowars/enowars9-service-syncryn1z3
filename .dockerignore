@@ -1,0 +1,11 @@
+.cache/
+.venv/
+.vscode/
+build/
+
+documentation/
+test/
+
+README.md
+LICENSE
+.gitignore
