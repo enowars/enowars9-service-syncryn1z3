@@ -6,5 +6,5 @@ set -x
 chown -R service:service "/data/"
 
 # Launch our service as user 'service'
-exec gosu service ./ptp-master
-#exec gdbserver :1234 ./ptp-master
+exec gosu service ./syncryn1z3
+#exec gdbserver :1234 ./syncryn1z3

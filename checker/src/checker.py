@@ -43,7 +43,7 @@ LOCAL_PORT = 2000
 EVENT_PORT = 319
 GENERAL_PORT = 320
 HTTP_PORT = 1588
-checker = Enochecker("ptp", HTTP_PORT)
+checker = Enochecker("syncryn1z3", HTTP_PORT)
 app = lambda: checker.app
 
 

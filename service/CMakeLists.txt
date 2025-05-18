@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(enowars9-ptp)
+project(enowars9-syncryn1z3)
 
 set(CMAKE_C_STANDARD 23)
 

@@ -1,5 +1,5 @@
 services:
-  ptp-service:
+  syncryn1z3-service:
     build: .
     # The code should be copied into the container using COPY.
     # Mount the data folder writable, so that information can be persisted across restarts.

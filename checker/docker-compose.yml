@@ -1,5 +1,5 @@
 services:
-  ptp-checker:
+  syncryn1z3-checker:
     build:
       dockerfile: checker/Dockerfile
       context: ..
@@ -7,10 +7,10 @@ services:
       - 11588:8000
     environment:
       - MONGO_ENABLED=1
-      - MONGO_HOST=ptp-mongo
+      - MONGO_HOST=syncryn1z3-mongo
       - MONGO_PORT=27017
-      - MONGO_USER=ptp
-      - MONGO_PASSWORD=ptp
+      - MONGO_USER=syncryn1z3
+      - MONGO_PASSWORD=syncryn1z3
     mem_limit: 1G
     memswap_limit: 2G
     ulimits:
@@ -21,15 +21,15 @@ services:
         soft: 4000
         hard: 4000
   # The python checkerlib requires a mongo db!
-  ptp-mongo:
+  syncryn1z3-mongo:
     image: mongo
     #ports:
     #  - 27017:27017
     volumes:
       - ./data:/data/db
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ptp
-      MONGO_INITDB_ROOT_PASSWORD: ptp
+      MONGO_INITDB_ROOT_USERNAME: syncryn1z3
+      MONGO_INITDB_ROOT_PASSWORD: syncryn1z3
     mem_limit: 1G
     memswap_limit: 2G
     ulimits:

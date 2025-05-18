@@ -11,7 +11,7 @@ COPY src src
 
 # Compile using cmake
 RUN cmake -S . -B build && cmake --build build
-RUN setcap CAP_NET_BIND_SERVICE+ep build/bin/ptp-master
+RUN setcap CAP_NET_BIND_SERVICE+ep build/bin/syncryn1z3
 
 
 # Use a suitable base-image
@@ -35,7 +35,7 @@ RUN chmod +x /entrypoint.sh
 WORKDIR /service/
 
 # Copy the compiled binary from build stage
-COPY --from=build /service/build/bin/ptp-master .
+COPY --from=build /service/build/bin/syncryn1z3 .
 
 WORKDIR /service/
 
