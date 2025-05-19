@@ -207,22 +207,22 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
             uint8_t *string_head = head;
             int total_length = 0;
 
-            struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)string_head;
-            string_head += sizeof(*header);
+            struct ptp_encoded_text_header *string_header = (struct ptp_encoded_text_header *)string_head;
+            string_head += sizeof(*string_header);
 
             if (string_head > tail) {
                 return -1;
             }
 
-            header->length = strnlen(input->payload.user_description, PTP_USER_DESCRIPTION_SIZE);
-            total_length += sizeof(*header) + header->length;
+            string_header->length = strnlen(input->payload.user_description, PTP_USER_DESCRIPTION_SIZE);
+            total_length += sizeof(*string_header) + string_header->length;
             int actual_length = total_length + (total_length & 0x1); // Add padding to get 2-byte alignment
 
             if (head + actual_length > tail) {
                 return -1;
             }
 
-            memcpy((char *)string_head, input->payload.user_description, header->length);
+            memcpy((char *)string_head, input->payload.user_description, string_header->length);
 
             head += actual_length;
 
@@ -230,44 +230,53 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
         }
 
         case PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM: {
+            struct ptp_encoded_management_tlv_port_claim *header = (struct ptp_encoded_management_tlv_port_claim *)head;
+            head += sizeof(struct ptp_encoded_management_tlv_port_claim);
+
+            if (head > tail) {
+                return -1;
+            }
+
+            header->authentication_policy = input->payload.port_claim.authentication_policy;
+
             uint8_t *string_head = head;
             int total_length = 0;
 
-            struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)string_head;
-            string_head += sizeof(*header);
+            struct ptp_encoded_text_header *string_header = (struct ptp_encoded_text_header *)string_head;
+            string_head += sizeof(*string_header);
 
             if (string_head > tail) {
                 return -1;
             }
 
-            header->length = strnlen(input->payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
-            header->length = header->length;
-            total_length += sizeof(*header) + header->length;
+            string_header->length = strnlen(input->payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
+            string_header->length = string_header->length;
+            total_length += sizeof(*string_header) + string_header->length;
 
-            if (string_head + header->length > tail) {
+            if (string_head + string_header->length > tail) {
                 return -1;
             }
 
-            memcpy((char *)string_head, input->payload.port_claim.port_secret, header->length);
+            memcpy((char *)string_head, input->payload.port_claim.port_secret, string_header->length);
 
-            string_head += header->length;
+            string_head += string_header->length;
 
-            header = (struct ptp_encoded_text_header *)string_head;
-            string_head += sizeof(*header);
+            string_header = (struct ptp_encoded_text_header *)string_head;
+            string_head += sizeof(*string_header);
 
             if (string_head > tail) {
                 return -1;
             }
 
-            header->length = strnlen(input->payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);
-            total_length += sizeof(*header) + header->length;
+            string_header->length = strnlen(input->payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);
+            total_length += sizeof(*string_header) + string_header->length;
             int actual_length = total_length + (total_length & 0x1); // Add padding to get 2-byte alignment
 
             if (head + actual_length > tail) {
                 return -1;
             }
 
-            memcpy((char *)string_head, input->payload.port_claim.user_description, header->length);
+            memcpy((char *)string_head, input->payload.port_claim.user_description, string_header->length);
 
             head += total_length;
 
@@ -297,21 +306,21 @@ static int ptp_encode_management_error_status_tlv(uint8_t **output, struct ptp_d
     payload->management_error_id = htobe16((uint16_t)input->error_id);
     payload->management_id = htobe16((uint16_t)input->id);
 
-    struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)head;
-    head += sizeof(*header);
+    struct ptp_encoded_text_header *string_header = (struct ptp_encoded_text_header *)head;
+    head += sizeof(*string_header);
 
     if (head > tail) {
         return -1;
     }
 
-    header->length = strnlen(input->display_data, PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE);
-    int actual_length = header->length + (~header->length & 0x1); // Add padding to get 2-byte alignment
+    string_header->length = strnlen(input->display_data, PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE);
+    int actual_length = string_header->length + (~string_header->length & 0x1); // Add padding to get 2-byte alignment
 
     if (head + actual_length > tail) {
         return -1;
     }
 
-    memcpy((char *)head, input->display_data, header->length);
+    memcpy((char *)head, input->display_data, string_header->length);
 
     head += actual_length;
     *output = head;
@@ -430,8 +439,8 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
                 return -1;
             }
 
-            payload->spp = input->payload.authentication.spp;
-            payload->security_parameter_indicatior = input->payload.authentication.security_parameter_indicatior;
+            payload->policy = input->payload.authentication.policy;
+            payload->parameter_indicator = input->payload.authentication.parameter_indicator;
             payload->key_id = htobe32(input->payload.authentication.key_id);
 
             // ICV is generated by ptp_security_complete_auth_tlvs()

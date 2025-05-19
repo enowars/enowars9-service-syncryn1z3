@@ -185,6 +185,7 @@ static int ptp_handle_management_port_claim(struct ptp_state *state, struct comm
 
     entry.port = request->message.payload.management.target_port_id.port;
     entry.active = true;
+    entry.authentication_policy = tlv->payload.port_claim.authentication_policy;
     strncpy(entry.secret, tlv->payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
     strncpy(entry.user_description, tlv->payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);
 

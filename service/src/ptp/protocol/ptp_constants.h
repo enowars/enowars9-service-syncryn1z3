@@ -198,3 +198,8 @@ enum ptp_tlv_unicast_flag {
     PTP_TLV_UNICAST_FLAG_MAINTAIN_GRANT = 1 << 1,
     PTP_TLV_UNICAST_FLAG_MASK = (1 << 2) - 1,
 };
+
+enum ptp_authentication_policy {
+    PTP_AUTHENTICATION_POLICY_PLAIN = 0,
+    PTP_AUTHENTICATION_POLICY_HMAC_128 = 1,
+};

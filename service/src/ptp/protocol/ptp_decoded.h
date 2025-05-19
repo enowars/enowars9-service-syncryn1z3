@@ -39,6 +39,7 @@ union ptp_decoded_management_tlv_payload {
     char user_description[PTP_USER_DESCRIPTION_SIZE + 1];
 
     struct {
+        enum ptp_authentication_policy authentication_policy;
         char port_secret[PTP_PORT_SECRET_SIZE + 1];
         char user_description[PTP_USER_DESCRIPTION_SIZE + 1];
     } port_claim;
@@ -83,8 +84,8 @@ struct ptp_decoded_pad_tlv {
 };
 
 struct ptp_decoded_authentication_tlv {
-    uint8_t spp;
-    uint8_t security_parameter_indicatior;
+    enum ptp_authentication_policy policy;
+    uint8_t parameter_indicator;
     uint32_t key_id;
 
     uint8_t *icv;

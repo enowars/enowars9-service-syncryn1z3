@@ -11,7 +11,9 @@ struct ptp_port_entry {
 
     bool active;
 
+    enum ptp_authentication_policy authentication_policy;
     char secret[PTP_PORT_SECRET_SIZE];
+    
     char user_description[PTP_USER_DESCRIPTION_SIZE];
 };
 

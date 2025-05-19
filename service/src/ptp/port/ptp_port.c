@@ -26,7 +26,7 @@ int ptp_port_db_setup(struct ptp_port_db *db, const char *filename) {
 
     const char *create_query =
         "CREATE TABLE IF NOT EXISTS\n"
-        "ports(port INTEGER PRIMARY KEY, secret TEXT, user_description TEXT);";
+        "ports(port INTEGER PRIMARY KEY, authentication_policy INTEGER, secret TEXT, user_description TEXT);";
 
     ret = sqlite3_exec(db->handle, create_query, 0, 0, &error_message);
     if (ret != SQLITE_OK) {
@@ -50,7 +50,7 @@ int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry *entry) {
     sqlite3_stmt *statement;
 
     const char *select_query =
-        "SELECT secret, user_description FROM ports\n"
+        "SELECT authentication_policy, secret, user_description FROM ports\n"
         "WHERE (port==?);";
 
     ret = sqlite3_prepare_v2(db->handle, select_query, -1, &statement, 0);
@@ -75,8 +75,9 @@ int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry *entry) {
     }
 
     entry->active = true;
-    memcpy(&entry->secret, sqlite3_column_text(statement, 0), PTP_PORT_SECRET_SIZE);
-    memcpy(&entry->user_description, sqlite3_column_text(statement, 1), PTP_USER_DESCRIPTION_SIZE);
+    entry->authentication_policy = sqlite3_column_int(statement, 0);
+    memcpy(&entry->secret, sqlite3_column_text(statement, 1), PTP_PORT_SECRET_SIZE);
+    memcpy(&entry->user_description, sqlite3_column_text(statement, 2), PTP_USER_DESCRIPTION_SIZE);
 
     ret = sqlite3_step(statement);
     if (ret != SQLITE_DONE) {
@@ -100,8 +101,8 @@ int ptp_port_db_set(struct ptp_port_db *db, struct ptp_port_entry *entry) {
 
     if (entry->active) {
         const char *insert_query =
-            "INSERT OR REPLACE INTO ports(port, secret, user_description)\n"
-            "VALUES (?, ?, ?);";
+            "INSERT OR REPLACE INTO ports(port, authentication_policy, secret, user_description)\n"
+            "VALUES (?, ?, ?, ?);";
 
         ret = sqlite3_prepare_v2(db->handle, insert_query, -1, &statement, 0);
         if (ret != SQLITE_OK) {
@@ -110,8 +111,9 @@ int ptp_port_db_set(struct ptp_port_db *db, struct ptp_port_entry *entry) {
         }
 
         sqlite3_bind_int(statement, 1, entry->port);
-        sqlite3_bind_text(statement, 2, entry->secret, PTP_PORT_SECRET_SIZE, NULL);
-        sqlite3_bind_text(statement, 3, entry->user_description, PTP_USER_DESCRIPTION_SIZE, NULL);
+        sqlite3_bind_int(statement, 2, entry->authentication_policy);
+        sqlite3_bind_text(statement, 3, entry->secret, PTP_PORT_SECRET_SIZE, NULL);
+        sqlite3_bind_text(statement, 4, entry->user_description, PTP_USER_DESCRIPTION_SIZE, NULL);
     } else {
         const char *delete_query =
             "DELETE FROM ports\n"

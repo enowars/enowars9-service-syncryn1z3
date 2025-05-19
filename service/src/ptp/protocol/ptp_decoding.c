@@ -1,8 +1,9 @@
-#include "ptp/protocol/ptp_decoded.h"
 #include <endian.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <ptp/protocol/ptp_constants.h>
+#include <ptp/protocol/ptp_decoded.h>
 #include <ptp/protocol/ptp_encoded.h>
 #include <ptp/protocol/ptp_protocol.h>
 
@@ -198,52 +199,60 @@ static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, 
 
     switch (output->id) {
         case PTP_MANAGEMENT_ID_USER_DESCRIPTION: {
-            struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)head;
-            head += sizeof(*header);
+            struct ptp_encoded_text_header *string_header = (struct ptp_encoded_text_header *)head;
+            head += sizeof(*string_header);
 
-            if (header->length > PTP_USER_DESCRIPTION_SIZE) {
+            if (string_header->length > PTP_USER_DESCRIPTION_SIZE) {
                 return -1;
             }
 
-            if (head + header->length > tlv_tail) {
+            if (head + string_header->length > tlv_tail) {
                 return -1;
             }
 
-            strncpy(output->payload.user_description, (char *)head, header->length);
-            output->payload.user_description[header->length] = '\0';
+            strncpy(output->payload.user_description, (char *)head, string_header->length);
+            output->payload.user_description[string_header->length] = '\0';
 
             break;
         }
 
         case PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM: {
-            struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)head;
-            head += sizeof(*header);
+            struct ptp_encoded_management_tlv_port_claim *header = (struct ptp_encoded_management_tlv_port_claim *)head;
+            output->payload.port_claim.authentication_policy = (enum ptp_authentication_policy)header->authentication_policy;
+            head += sizeof(struct ptp_encoded_management_tlv_port_claim);
 
-            if (header->length > PTP_PORT_SECRET_SIZE) {
+            if (head > tlv_tail) {
                 return -1;
             }
 
-            if (head + header->length > tlv_tail) {
+            struct ptp_encoded_text_header *string_header = (struct ptp_encoded_text_header *)head;
+            head += sizeof(*string_header);
+
+            if (string_header->length > PTP_PORT_SECRET_SIZE) {
                 return -1;
             }
 
-            strncpy(output->payload.port_claim.port_secret, (char *)head, header->length);
-            output->payload.port_claim.port_secret[header->length] = '\0';
-            head += header->length;
-
-            header = (struct ptp_encoded_text_header *)head;
-            head += sizeof(*header);
-
-            if (header->length > PTP_USER_DESCRIPTION_SIZE) {
+            if (head + string_header->length > tlv_tail) {
                 return -1;
             }
 
-            if (head + header->length > tlv_tail) {
+            strncpy(output->payload.port_claim.port_secret, (char *)head, string_header->length);
+            output->payload.port_claim.port_secret[string_header->length] = '\0';
+            head += string_header->length;
+
+            string_header = (struct ptp_encoded_text_header *)head;
+            head += sizeof(*string_header);
+
+            if (string_header->length > PTP_USER_DESCRIPTION_SIZE) {
                 return -1;
             }
 
-            strncpy(output->payload.port_claim.user_description, (char *)head, header->length);
-            output->payload.port_claim.user_description[header->length] = '\0';
+            if (head + string_header->length > tlv_tail) {
+                return -1;
+            }
+
+            strncpy(output->payload.port_claim.user_description, (char *)head, string_header->length);
+            output->payload.port_claim.user_description[string_header->length] = '\0';
 
             break;
         }
@@ -269,18 +278,18 @@ static int ptp_decode_management_error_status_tlv(struct ptp_decoded_management_
     output->error_id = (enum ptp_management_error_id)be16toh(payload->management_error_id);
     output->id = (enum ptp_management_id)be16toh(payload->management_id);
 
-    struct ptp_encoded_text_header *header = (struct ptp_encoded_text_header *)head;
-    head += sizeof(*header);
+    struct ptp_encoded_text_header *string_header = (struct ptp_encoded_text_header *)head;
+    head += sizeof(*string_header);
 
-    if (header->length > PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE) {
+    if (string_header->length > PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE) {
         return -1;
     }
 
-    if (head + header->length > tlv_tail) {
+    if (head + string_header->length > tlv_tail) {
         return -1;
     }
 
-    strncpy(output->display_data, (char *)head, header->length);
+    strncpy(output->display_data, (char *)head, string_header->length);
     output->display_data[PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE] = '\0';
 
     return 0;
@@ -396,8 +405,8 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
                 return -1;
             }
 
-            output->payload.authentication.spp = payload->spp;
-            output->payload.authentication.security_parameter_indicatior = payload->security_parameter_indicatior;
+            output->payload.authentication.policy = (enum ptp_authentication_policy)payload->policy;
+            output->payload.authentication.parameter_indicator = payload->parameter_indicator;
             output->payload.authentication.key_id = be32toh(payload->key_id);
 
             output->payload.authentication.icv = head;

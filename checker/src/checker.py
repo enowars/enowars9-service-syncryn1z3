@@ -133,8 +133,8 @@ def generate_secret(length: int):
 
 def add_auth_tlv(message):
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION)
-    tlv.payload.authentication.spp = 0
-    tlv.payload.authentication.security_parameter_indicatior = 0
+    tlv.payload.authentication.policy = ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_HMAC_128
+    tlv.payload.authentication.parameter_indicator = 0
     tlv.payload.authentication.key_id = 0
     tlv.payload.authentication.icv_length = 16
 
@@ -186,6 +186,7 @@ async def putflag_user_description(
 
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
     tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM
+    tlv.payload.management.payload.port_claim.authentication_policy = ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_HMAC_128
     ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.port_secret, secret + b'\0', len(secret) + 1)
     ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.user_description, description + b'\0', len(description) + 1)
 

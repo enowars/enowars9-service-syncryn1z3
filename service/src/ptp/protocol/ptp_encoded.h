@@ -213,9 +213,15 @@ struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv {
 _Static_assert(sizeof(struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv) == 2);
 
 struct ptp_encoded_authetication_tlv {
-    uint8_t spp;
-    uint8_t security_parameter_indicatior;
+    uint8_t policy;
+    uint8_t parameter_indicator;
     uint32_t key_id;
 } __attribute__((packed, aligned(1)));
 
 _Static_assert(sizeof(struct ptp_encoded_authetication_tlv) == 6);
+
+struct ptp_encoded_management_tlv_port_claim {
+    uint8_t authentication_policy;
+} __attribute__((packed, aligned(1)));
+
+_Static_assert(sizeof(struct ptp_encoded_management_tlv_port_claim) == 1);
