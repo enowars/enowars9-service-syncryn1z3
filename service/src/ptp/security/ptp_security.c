@@ -88,15 +88,14 @@ int ptp_security_complete_auth_tlvs(struct ptp_state *state, struct common_messa
             continue;
         }
 
-        struct ptp_port_entry entry;
-        entry.port = info->message.port_id.port;
-        ret = ptp_port_db_get(&state->port_db, &entry);
+        struct ptp_port_entry *entry;
+        ret = ptp_port_db_get(&state->port_db, &entry, info->message.port_id.port);
         if (ret) {
             return ret;
         }
 
         uint8_t icv[PTP_MAX_ICV_LENGTH];
-        ret = ptp_compute_icv(icv, info, &tlv->payload.authentication, &entry);
+        ret = ptp_compute_icv(icv, info, &tlv->payload.authentication, entry);
         if (ret < 0) {
             return ret;
         }
@@ -114,15 +113,14 @@ int ptp_security_check_auth(struct ptp_state *state, struct common_message_info 
     int ret;
     bool authenticated = false;
 
-    struct ptp_port_entry entry;
-    entry.port = port;
-    ret = ptp_port_db_get(&state->port_db, &entry);
+    struct ptp_port_entry *entry;
+    ret = ptp_port_db_get(&state->port_db, &entry, port);
     if (ret) {
         return ret;
     }
 
     // Only require authentication on active ports
-    authenticated = !entry.active;
+    authenticated = !entry->active;
     
     for (int i = info->message.tlv_count - 1; i >= 0; --i) {
         struct ptp_decoded_tlv *tlv = &info->message.tlvs[i];
@@ -132,12 +130,12 @@ int ptp_security_check_auth(struct ptp_state *state, struct common_message_info 
             continue;
         }
 
-        if (tlv->payload.authentication.policy != entry.authentication_policy) {
+        if (tlv->payload.authentication.policy != entry->authentication_policy) {
             return -EINVAL;
         }
 
         uint8_t icv[PTP_MAX_ICV_LENGTH];
-        ret = ptp_compute_icv(icv, info, &tlv->payload.authentication, &entry);
+        ret = ptp_compute_icv(icv, info, &tlv->payload.authentication, entry);
         if (ret < 0) {
             return ret;
         }

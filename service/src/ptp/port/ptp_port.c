@@ -1,10 +1,28 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 #include <sqlite3.h>
 
 #include <ptp/port/ptp_port.h>
+
+#define PTP_PORT_DB_CACHE_SIZE 256
+
+static inline int ptp_port_db_hash(uint16_t port) {
+    return port % PTP_PORT_DB_CACHE_SIZE;
+}
+
+static inline int ptp_port_db_valid(uint16_t port) {
+    // Do not allow special ports
+    if (port == 0 || port == 0xffff) {
+        return -EINVAL;
+    }
+
+    return 0;
+}
 
 int ptp_port_db_setup(struct ptp_port_db *db, const char *filename) {
     int ret;
@@ -35,19 +53,41 @@ int ptp_port_db_setup(struct ptp_port_db *db, const char *filename) {
         return -1;
     }
 
+    db->cache = calloc(PTP_PORT_DB_CACHE_SIZE, sizeof(struct ptp_port_entry));
+    if (!db->cache) {
+        return -ENOMEM;
+    }
+
     return 0;
 }
 
 int ptp_port_db_cleanup(struct ptp_port_db *db) {
-    sqlite3_close(db->handle);
+    int ret;
+    
+    ret = sqlite3_close(db->handle);
+    if (ret != SQLITE_OK) {
+        return -1;
+    }
+
+    free(db->cache);
 
     return 0;
 }
 
-int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry *entry) {
+int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry **entry, uint16_t port) {
     int ret;
     char *error_message;
     sqlite3_stmt *statement;
+
+    ret = ptp_port_db_valid(port);
+    if (ret) {
+        return ret;
+    }
+
+    *entry = &db->cache[ptp_port_db_hash(port)];
+    if ((*entry)->port == port) {
+        return 0;
+    }
 
     const char *select_query =
         "SELECT authentication_policy, secret, user_description FROM ports\n"
@@ -59,12 +99,12 @@ int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry *entry) {
         return -1;
     }
 
-    sqlite3_bind_int(statement, 1, entry->port);
+    sqlite3_bind_int(statement, 1, port);
 
     ret = sqlite3_step(statement);
     if (ret != SQLITE_ROW) {
         if (ret == SQLITE_DONE) {
-            entry->active = false;
+            (*entry)->active = false;
             ret = 0;
         } else {
             fprintf(stderr, "Execution failed: %s\n", sqlite3_errmsg(db->handle));
@@ -74,10 +114,11 @@ int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry *entry) {
         goto out;
     }
 
-    entry->active = true;
-    entry->authentication_policy = sqlite3_column_int(statement, 0);
-    memcpy(&entry->secret, sqlite3_column_text(statement, 1), PTP_PORT_SECRET_SIZE);
-    memcpy(&entry->user_description, sqlite3_column_text(statement, 2), PTP_USER_DESCRIPTION_SIZE);
+    (*entry)->port = port;
+    (*entry)->active = true;
+    (*entry)->authentication_policy = sqlite3_column_int(statement, 0);
+    memcpy(&(*entry)->secret, sqlite3_column_text(statement, 1), PTP_PORT_SECRET_SIZE);
+    memcpy(&(*entry)->user_description, sqlite3_column_text(statement, 2), PTP_USER_DESCRIPTION_SIZE);
 
     ret = sqlite3_step(statement);
     if (ret != SQLITE_DONE) {
@@ -98,6 +139,14 @@ int ptp_port_db_set(struct ptp_port_db *db, struct ptp_port_entry *entry) {
     int ret;
     char *error_message;
     sqlite3_stmt *statement;
+
+    ret = ptp_port_db_valid(entry->port);
+    if (ret) {
+        return ret;
+    }
+
+    // Invalidate cache
+    db->cache[ptp_port_db_hash(entry->port)].port = 0;
 
     if (entry->active) {
         const char *insert_query =

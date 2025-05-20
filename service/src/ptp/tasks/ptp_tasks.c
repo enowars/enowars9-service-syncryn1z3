@@ -135,11 +135,10 @@ out:
 
 static int ptp_handle_management_user_description_get(struct ptp_state *state, struct common_message_info *request) {
     int ret;
-    struct ptp_port_entry entry;
+    struct ptp_port_entry *entry;
     struct common_message_info *response;
 
-    entry.port = request->message.payload.management.target_port_id.port;
-    ret = ptp_port_db_get(&state->port_db, &entry);
+    ret = ptp_port_db_get(&state->port_db, &entry, request->message.payload.management.target_port_id.port);
     if (ret) {
         return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_UNPOPULATED, PTP_MANAGEMENT_ID_USER_DESCRIPTION, "No such port");
     }
@@ -162,7 +161,7 @@ static int ptp_handle_management_user_description_get(struct ptp_state *state, s
 
     response->message.tlvs[0].type = PTP_TLV_TYPE_MANAGEMENT;
     response->message.tlvs[0].payload.management.id = PTP_MANAGEMENT_ID_USER_DESCRIPTION;
-    strncpy(response->message.tlvs[0].payload.management.payload.user_description, entry.user_description, PTP_USER_DESCRIPTION_SIZE);
+    strncpy(response->message.tlvs[0].payload.management.payload.user_description, entry->user_description, PTP_USER_DESCRIPTION_SIZE);
 
     response->message.tlv_count = 1;
 
