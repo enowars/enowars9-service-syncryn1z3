@@ -16,7 +16,7 @@
 #include <util/ring.h>
 #include <util/mempool.h>
 
-static int ptp_get_and_init_message(struct ptp_state *state, struct common_message_info **info, enum common_port_type port_type, uint16_t port) {
+static int ptp_get_and_init_message(struct ptp_state *state, struct common_message_info **info, enum common_port_type port_type, struct ptp_decoded_port_id port_id) {
     *info = (struct common_message_info *)util_mempool_get(&state->mempool);
     if (!info) {
         return -ENOMEM;
@@ -29,8 +29,8 @@ static int ptp_get_and_init_message(struct ptp_state *state, struct common_messa
     (*info)->message.domain = ptp_domain;
     (*info)->message.log_message_interval = 0x7f;
 
-    memcpy(&(*info)->message.port_id.clock_id, &state->config->clock_id, sizeof(state->config->clock_id));
-    (*info)->message.port_id.port = port;
+    (*info)->message.port_id.clock_id = port_id.clock_id;
+    (*info)->message.port_id.port = port_id.port;
 
     (*info)->port_type = port_type;
 
@@ -58,6 +58,18 @@ static int ptp_encode_and_enqueue_message(struct ptp_state *state, struct common
     }
 
     return 0;
+}
+
+static struct ptp_decoded_tlv *ptp_add_tlv(struct ptp_decoded_message *message) {
+    struct ptp_decoded_tlv *result;
+
+    if (message->tlv_count >= PTP_MAX_TLV_COUNT) {
+        return NULL;
+    }
+
+    result = &message->tlvs[message->tlv_count++];
+    
+    return result;
 }
 
 static inline enum ptp_management_error_id ptp_management_error_id(int error) {
@@ -89,4 +101,12 @@ static inline enum ptp_management_action ptp_managment_response_action(enum ptp_
             return 0; // TODO: Hide this better
         }
     }
+}
+
+static inline int ptp_compare_port_id(struct ptp_decoded_port_id port_id_a, struct ptp_decoded_port_id port_id_b) {
+    if (port_id_a.clock_id != port_id_b.clock_id || port_id_a.port != port_id_b.port) {
+        return -1;
+    }
+
+    return 0;
 }

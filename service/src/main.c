@@ -31,10 +31,6 @@ int main(int argc, char *argv[]) {
 
     memset(&state, 0, sizeof(state));
 
-    // Locally administered OUI range
-    static const ptp_decoded_clock_id_t clock_id = {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01};
-
-    memcpy(state.config.ptp.clock_id, clock_id, sizeof(clock_id));
     state.config.ptp.clock_priority = 0;
     state.config.ptp.clock_quality.clock_class = PTP_CLOCK_CLASS_APPLICATION_SPECIFIC;
     state.config.ptp.clock_quality.clock_accuracy = PTP_CLOCK_ACCURACY_10_US;

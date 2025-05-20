@@ -17,11 +17,11 @@
 #include <util/ring.h>
 #include <util/mempool.h>
 
-static int ptp_send_sync(struct ptp_state *state, struct common_message_info *request) {
+static int ptp_send_sync(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_port_id port_id) {
     int ret;
     
     struct common_message_info *response;
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT, 0); // TODO: set correct port
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT, port_id);
     if (ret) {
         return ret;
     }
@@ -47,11 +47,11 @@ out:
     return ret;
 }
 
-static int ptp_send_announce(struct ptp_state *state, struct common_message_info *request) {
+static int ptp_send_announce(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_port_id port_id) {
     int ret;
 
     struct common_message_info *response;
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT, 0); // TODO: set correct port
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT, port_id);
     if (ret) {
         return ret;
     }
@@ -66,7 +66,7 @@ static int ptp_send_announce(struct ptp_state *state, struct common_message_info
     response->message.payload.announce.timestamp = util_get_time_ns();
     response->message.payload.announce.grandmaster_priority = state->config->clock_priority;
     memcpy(&response->message.payload.announce.grandmaster_clock_quality, &state->config->clock_quality, sizeof(state->config->clock_quality));
-    memcpy(&response->message.payload.announce.grandmaster_id, &state->config->clock_id, sizeof(state->config->clock_id));
+    response->message.payload.announce.grandmaster_id = port_id.clock_id;
     response->message.payload.announce.steps_removed = 0;
     response->message.payload.announce.time_source = PTP_TIME_SOURCE_INTERNAL_OSCILLATOR;
 
@@ -86,10 +86,11 @@ static int ptp_management_error(struct ptp_state *state, struct common_message_i
     int ret;
     va_list va_args;
     struct common_message_info *response;
+    struct ptp_decoded_tlv *tlv;
 
     va_start(va_args, format);
 
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id.port);
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id);
     if (ret) {
         return ret;
     }
@@ -105,16 +106,15 @@ static int ptp_management_error(struct ptp_state *state, struct common_message_i
     response->message.payload.management.boundary_hops = 0;
     memcpy(&response->message.payload.management.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
 
-    response->message.tlvs[0].type = PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS;
-    response->message.tlvs[0].payload.management_error_status.error_id = error_id;
-    response->message.tlvs[0].payload.management_error_status.id = id;
+    tlv = ptp_add_tlv(&response->message);
+    tlv->type = PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS;
+    tlv->payload.management_error_status.error_id = error_id;
+    tlv->payload.management_error_status.id = id;
 
-    ret = vsnprintf(response->message.tlvs[0].payload.management_error_status.display_data, PTP_USER_DESCRIPTION_SIZE, format, va_args);
+    ret = vsnprintf(tlv->payload.management_error_status.display_data, PTP_USER_DESCRIPTION_SIZE, format, va_args);
     if (ret < 0) {
         return ret;
     }
-
-    response->message.tlv_count = 1;
 
     ret = ptp_security_add_auth_tlv(state, response);
     if (ret) {
@@ -133,17 +133,23 @@ out:
     return ret;
 }
 
-static int ptp_handle_management_user_description_get(struct ptp_state *state, struct common_message_info *request) {
+static int ptp_handle_management_user_description_get(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_tlv *request_tlv) {
     int ret;
     struct ptp_port_entry *entry;
     struct common_message_info *response;
+    struct ptp_decoded_tlv *tlv;
 
-    ret = ptp_port_db_get(&state->port_db, &entry, request->message.payload.management.target_port_id.port);
+    ret = ptp_port_db_get(&state->port_db, &entry, request->message.payload.management.target_port_id);
     if (ret) {
         return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_UNPOPULATED, PTP_MANAGEMENT_ID_USER_DESCRIPTION, "No such port");
     }
 
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id.port);
+    ret = ptp_security_check_auth(state, request, request_tlv, request->message.payload.management.target_port_id);
+    if (ret) {
+        return ptp_management_error(state, request, ptp_management_error_id(ret), PTP_MANAGEMENT_ID_NULL, "Access denied");
+    }
+
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id);
     if (ret) {
         return ret;
     }
@@ -159,11 +165,10 @@ static int ptp_handle_management_user_description_get(struct ptp_state *state, s
     response->message.payload.management.boundary_hops = 0;
     memcpy(&response->message.payload.management.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
 
-    response->message.tlvs[0].type = PTP_TLV_TYPE_MANAGEMENT;
-    response->message.tlvs[0].payload.management.id = PTP_MANAGEMENT_ID_USER_DESCRIPTION;
-    strncpy(response->message.tlvs[0].payload.management.payload.user_description, entry->user_description, PTP_USER_DESCRIPTION_SIZE);
-
-    response->message.tlv_count = 1;
+    tlv = ptp_add_tlv(&response->message);
+    tlv->type = PTP_TLV_TYPE_MANAGEMENT;
+    tlv->payload.management.id = PTP_MANAGEMENT_ID_USER_DESCRIPTION;
+    strncpy(tlv->payload.management.payload.user_description, entry->user_description, PTP_USER_DESCRIPTION_SIZE);
 
     ret = ptp_encode_and_enqueue_message(state, response);
     if (ret) {
@@ -177,23 +182,25 @@ out:
     return ret;
 }
 
-static int ptp_handle_management_port_claim(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_management_tlv *tlv) {
+static int ptp_handle_management_port_claim(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_tlv *request_tlv) {
     int ret;
     struct ptp_port_entry entry;
     struct common_message_info *response;
+    struct ptp_decoded_tlv *tlv;
 
-    entry.port = request->message.payload.management.target_port_id.port;
+    entry.port_id.clock_id = request->message.payload.management.target_port_id.clock_id;
+    entry.port_id.port = request->message.payload.management.target_port_id.port;
     entry.active = true;
-    entry.authentication_policy = tlv->payload.port_claim.authentication_policy;
-    strncpy(entry.secret, tlv->payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
-    strncpy(entry.user_description, tlv->payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);
+    entry.authentication_policy = request_tlv->payload.management.payload.port_claim.authentication_policy;
+    strncpy(entry.secret, request_tlv->payload.management.payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
+    strncpy(entry.user_description, request_tlv->payload.management.payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);
 
     ret = ptp_port_db_set(&state->port_db, &entry);
     if (ret) {
-        return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_UNPOPULATED, PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM, "Failed to claim port");
+        return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SETABLE, PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM, "Port already claimed");
     }
 
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id.port);
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id);
     if (ret) {
         return ret;
     }
@@ -210,10 +217,9 @@ static int ptp_handle_management_port_claim(struct ptp_state *state, struct comm
     memcpy(&response->message.payload.management.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
 
     // Send values back
-    response->message.tlvs[0].type = PTP_TLV_TYPE_MANAGEMENT;
-    memcpy(&response->message.tlvs[0].payload, tlv, sizeof(*tlv));
-
-    response->message.tlv_count = 1;
+    tlv = ptp_add_tlv(&response->message);
+    tlv->type = PTP_TLV_TYPE_MANAGEMENT;
+    memcpy(&tlv->payload.management, &request_tlv->payload.management, sizeof(request_tlv->payload.management));
 
     ret = ptp_encode_and_enqueue_message(state, response);
     if (ret) {
@@ -227,12 +233,13 @@ out:
     return ret;
 }
 
-static int ptp_handle_tlv_request_unicast(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_request_unicast_transmission_tlv *tlv) {
+static int ptp_handle_tlv_request_unicast(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_tlv *request_tlv) {
     int ret;
     struct common_message_info *response;
-    int (*send_function)(struct ptp_state *, struct common_message_info *);
+    struct ptp_decoded_tlv *tlv;
+    int (*send_function)(struct ptp_state *, struct common_message_info *, struct ptp_decoded_port_id);
 
-    switch (tlv->type) {
+    switch (request_tlv->payload.request_unicast.type) {
         case PTP_MESSAGE_TYPE_SYNC: {
             send_function = ptp_send_sync;
             break;
@@ -249,7 +256,7 @@ static int ptp_handle_tlv_request_unicast(struct ptp_state *state, struct common
     }
 
     // Build response
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.signaling.target_port_id.port);
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.signaling.target_port_id);
     if (ret) {
         return ret;
     }
@@ -262,10 +269,11 @@ static int ptp_handle_tlv_request_unicast(struct ptp_state *state, struct common
 
     memcpy(&response->message.payload.signaling.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
 
-    response->message.tlvs[0].type = PTP_TLV_TYPE_GRANT_UNICAST_TRANSMISSION;
-    response->message.tlvs[0].payload.grant_unicast.duration = 0; // No duration as we only send one packet
-    response->message.tlvs[0].payload.grant_unicast.log_message_interval = 0;
-    response->message.tlvs[0].payload.grant_unicast.flags = PTP_TLV_UNICAST_FLAG_MAINTAIN_REQUEST;
+    tlv = ptp_add_tlv(&response->message);
+    tlv->type = PTP_TLV_TYPE_GRANT_UNICAST_TRANSMISSION;
+    tlv->payload.grant_unicast.duration = 0; // No duration as we only send one packet
+    tlv->payload.grant_unicast.log_message_interval = 0;
+    tlv->payload.grant_unicast.flags = PTP_TLV_UNICAST_FLAG_MAINTAIN_REQUEST;
 
     response->message.tlv_count = 1;
 
@@ -274,7 +282,7 @@ static int ptp_handle_tlv_request_unicast(struct ptp_state *state, struct common
         goto out;
     }
 
-    ret = send_function(state, request);
+    ret = send_function(state, request, request->message.payload.signaling.target_port_id);
     if (ret) {
         return ret;
     }
@@ -286,18 +294,18 @@ out:
     return ret;
 }
 
-static int ptp_handle_tlv_management(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_management_tlv *tlv) {
+static int ptp_handle_tlv_management(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_tlv *tlv) {
     int ret;
 
-    switch (tlv->id) {
+    switch (tlv->payload.management.id) {
         case PTP_MANAGEMENT_ID_USER_DESCRIPTION: {
             if (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_GET) {
-                ret = ptp_handle_management_user_description_get(state, request);
+                ret = ptp_handle_management_user_description_get(state, request, tlv);
                 if (ret) {
                     return ret;
                 }
             } else {
-                return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Action not supported");
+                return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->payload.management.id, "Unsupported action");
             }
 
             break;
@@ -310,14 +318,14 @@ static int ptp_handle_tlv_management(struct ptp_state *state, struct common_mess
                     return ret;
                 }
             } else {
-                return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Action not supported");
+                return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->payload.management.id, "Action not supported");
             }
 
             break;
         }
 
         default: {
-            return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->id, "Management ID not supported");
+            return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->payload.management.id, "Management ID not supported");
         }
     }
 
@@ -332,7 +340,7 @@ static int ptp_handle_message_delay_request(struct ptp_state *state, struct comm
         return -EINVAL;
     }
 
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT, request->message.payload.event.port_id.port);
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT, request->message.payload.event.port_id);
     if (ret) {
         return ret;
     }
@@ -365,18 +373,13 @@ static int ptp_handle_message_signaling(struct ptp_state *state, struct common_m
         return -EINVAL;
     }
 
-    ret = memcmp(&request->message.payload.signaling.target_port_id.clock_id, &state->config->clock_id, sizeof(state->config->clock_id));
-    if (ret) {
-        return -EINVAL;
-    }
-
     // Handle supported TLVs
     for (int i = 0; i < request->message.tlv_count; ++i) {
         struct ptp_decoded_tlv *tlv = &request->message.tlvs[i];
 
         switch (tlv->type) {
             case PTP_TLV_TYPE_REQUEST_UNICAST_TRANSMISSION: {
-                ret = ptp_handle_tlv_request_unicast(state, request, &tlv->payload.request_unicast);
+                ret = ptp_handle_tlv_request_unicast(state, request, tlv);
                 if (ret) {
                     return ret;
                 }
@@ -400,28 +403,13 @@ static int ptp_handle_message_management(struct ptp_state *state, struct common_
         return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_WRONG_VALUE, PTP_MANAGEMENT_ID_NULL, "Management message received on wrong port");
     }
 
-    ret = memcmp(&request->message.payload.management.target_port_id.clock_id, &state->config->clock_id, sizeof(state->config->clock_id));
-    if (ret) {
-        return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_UNPOPULATED, PTP_MANAGEMENT_ID_NULL, "Clock ID does not match");
-    }
-
-    // Only require authetication on management messages
-    ret = ptp_security_check_auth(state, request, request->message.payload.management.target_port_id.port);
-    if (ret) {
-        return ptp_management_error(state, request, ptp_management_error_id(ret), PTP_MANAGEMENT_ID_NULL, "Authentication fail");
-    }
-
     // Handle supported TLVs
     for (int i = 0; i < request->message.tlv_count; ++i) {
         struct ptp_decoded_tlv *tlv = &request->message.tlvs[i];
 
         switch (tlv->type) {
             case PTP_TLV_TYPE_MANAGEMENT: {
-                if (!tlv->authenticated) {
-                    return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_GENERAL, PTP_MANAGEMENT_ID_NULL, "Not authenticated");
-                }
-
-                ret = ptp_handle_tlv_management(state, request, &tlv->payload.management);
+                ret = ptp_handle_tlv_management(state, request, tlv);
                 if (ret) {
                     return ret;
                 }

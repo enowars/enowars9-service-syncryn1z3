@@ -8,16 +8,22 @@
 #include <sqlite3.h>
 
 #include <ptp/port/ptp_port.h>
+#include <ptp/ptp_helper.h>
 
 #define PTP_PORT_DB_CACHE_SIZE 256
 
-static inline int ptp_port_db_hash(uint16_t port) {
-    return port % PTP_PORT_DB_CACHE_SIZE;
+static inline int ptp_port_db_hash(struct ptp_decoded_port_id port_id) {
+    return (port_id.clock_id + port_id.port) % PTP_PORT_DB_CACHE_SIZE;
 }
 
-static inline int ptp_port_db_valid(uint16_t port) {
+static inline int ptp_port_db_valid(struct ptp_decoded_port_id port_id) {
+    // Only allow locally administered OUI range
+    if (((port_id.clock_id >> 56) & 0xff) != 0x02) {
+        return -EINVAL;
+    }
+
     // Do not allow special ports
-    if (port == 0 || port == 0xffff) {
+    if (port_id.port == 0 || port_id.port == 0xffff) {
         return -EINVAL;
     }
 
@@ -44,7 +50,7 @@ int ptp_port_db_setup(struct ptp_port_db *db, const char *filename) {
 
     const char *create_query =
         "CREATE TABLE IF NOT EXISTS\n"
-        "ports(port INTEGER PRIMARY KEY, authentication_policy INTEGER, secret TEXT, user_description TEXT);";
+        "ports(clock_id INTEGER NOT NULL, port INTEGER NOT NULL, authentication_policy INTEGER, secret TEXT, user_description TEXT, UNIQUE(clock_id, port));";
 
     ret = sqlite3_exec(db->handle, create_query, 0, 0, &error_message);
     if (ret != SQLITE_OK) {
@@ -74,24 +80,24 @@ int ptp_port_db_cleanup(struct ptp_port_db *db) {
     return 0;
 }
 
-int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry **entry, uint16_t port) {
+int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry **entry, struct ptp_decoded_port_id port_id) {
     int ret;
     char *error_message;
     sqlite3_stmt *statement;
 
-    ret = ptp_port_db_valid(port);
+    ret = ptp_port_db_valid(port_id);
     if (ret) {
         return ret;
     }
 
-    *entry = &db->cache[ptp_port_db_hash(port)];
-    if ((*entry)->port == port) {
+    *entry = &db->cache[ptp_port_db_hash(port_id)];
+    if (!ptp_compare_port_id((*entry)->port_id, port_id)) {
         return 0;
     }
 
     const char *select_query =
         "SELECT authentication_policy, secret, user_description FROM ports\n"
-        "WHERE (port==?);";
+        "WHERE (clock_id==? AND port==?);";
 
     ret = sqlite3_prepare_v2(db->handle, select_query, -1, &statement, 0);
     if (ret != SQLITE_OK) {
@@ -99,7 +105,8 @@ int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry **entry, uint1
         return -1;
     }
 
-    sqlite3_bind_int(statement, 1, port);
+    sqlite3_bind_int64(statement, 1, port_id.clock_id);
+    sqlite3_bind_int(statement, 2, port_id.port);
 
     ret = sqlite3_step(statement);
     if (ret != SQLITE_ROW) {
@@ -114,7 +121,8 @@ int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry **entry, uint1
         goto out;
     }
 
-    (*entry)->port = port;
+    (*entry)->port_id.clock_id = port_id.clock_id;
+    (*entry)->port_id.port = port_id.port;
     (*entry)->active = true;
     (*entry)->authentication_policy = sqlite3_column_int(statement, 0);
     memcpy(&(*entry)->secret, sqlite3_column_text(statement, 1), PTP_PORT_SECRET_SIZE);
@@ -140,18 +148,18 @@ int ptp_port_db_set(struct ptp_port_db *db, struct ptp_port_entry *entry) {
     char *error_message;
     sqlite3_stmt *statement;
 
-    ret = ptp_port_db_valid(entry->port);
+    ret = ptp_port_db_valid(entry->port_id);
     if (ret) {
         return ret;
     }
 
     // Invalidate cache
-    db->cache[ptp_port_db_hash(entry->port)].port = 0;
+    db->cache[ptp_port_db_hash(entry->port_id)].port_id.port = 0;
 
     if (entry->active) {
         const char *insert_query =
-            "INSERT OR REPLACE INTO ports(port, authentication_policy, secret, user_description)\n"
-            "VALUES (?, ?, ?, ?);";
+            "INSERT OR REPLACE INTO ports(clock_id, port, authentication_policy, secret, user_description)\n"
+            "VALUES (?, ?, ?, ?, ?);";
 
         ret = sqlite3_prepare_v2(db->handle, insert_query, -1, &statement, 0);
         if (ret != SQLITE_OK) {
@@ -159,14 +167,15 @@ int ptp_port_db_set(struct ptp_port_db *db, struct ptp_port_entry *entry) {
             return -1;
         }
 
-        sqlite3_bind_int(statement, 1, entry->port);
-        sqlite3_bind_int(statement, 2, entry->authentication_policy);
-        sqlite3_bind_text(statement, 3, entry->secret, PTP_PORT_SECRET_SIZE, NULL);
-        sqlite3_bind_text(statement, 4, entry->user_description, PTP_USER_DESCRIPTION_SIZE, NULL);
+        sqlite3_bind_int64(statement, 1, entry->port_id.clock_id);
+        sqlite3_bind_int(statement, 2, entry->port_id.port);
+        sqlite3_bind_int(statement, 3, entry->authentication_policy);
+        sqlite3_bind_text(statement, 4, entry->secret, PTP_PORT_SECRET_SIZE, NULL);
+        sqlite3_bind_text(statement, 5, entry->user_description, PTP_USER_DESCRIPTION_SIZE, NULL);
     } else {
         const char *delete_query =
             "DELETE FROM ports\n"
-            "WHERE (port==?);";
+            "WHERE (clock_id==? AND port==?);";
 
         ret = sqlite3_prepare_v2(db->handle, delete_query, -1, &statement, 0);
         if (ret != SQLITE_OK) {
@@ -174,7 +183,8 @@ int ptp_port_db_set(struct ptp_port_db *db, struct ptp_port_entry *entry) {
             return -1;
         }
 
-        sqlite3_bind_int(statement, 1, entry->port);
+        sqlite3_bind_int64(statement, 1, entry->port_id.clock_id);
+        sqlite3_bind_int(statement, 2, entry->port_id.port);
     }
 
     ret = sqlite3_step(statement);

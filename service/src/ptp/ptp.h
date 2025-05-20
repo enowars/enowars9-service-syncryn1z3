@@ -12,7 +12,6 @@
 #include <util/mempool.h>
 
 struct ptp_config {
-    ptp_decoded_clock_id_t clock_id;
     uint16_t clock_priority;
     struct ptp_decoded_clock_quality clock_quality;
 

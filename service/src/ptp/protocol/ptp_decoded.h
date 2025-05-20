@@ -15,10 +15,8 @@
     General types
 */
 
-typedef uint8_t ptp_decoded_clock_id_t[8];
-
 struct ptp_decoded_port_id {
-    ptp_decoded_clock_id_t clock_id;
+    uint64_t clock_id;
     uint16_t port;
 };
 
@@ -124,7 +122,7 @@ struct ptp_decoded_announce_message {
 
     uint16_t grandmaster_priority;
     struct ptp_decoded_clock_quality grandmaster_clock_quality;
-    ptp_decoded_clock_id_t grandmaster_id;
+    uint64_t grandmaster_id;
 
     uint16_t steps_removed;
     enum ptp_time_source time_source;

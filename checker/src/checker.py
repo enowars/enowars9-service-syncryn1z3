@@ -165,7 +165,7 @@ async def putflag_user_description(
     connection: Connection,
     logger: LoggerAdapter,    
 ) -> None:
-    port = random.randint(0x1, 0xffff)
+    port = random.randint(0x1, 0xfffe)
     secret = generate_secret(50)
 
     if (len(secret) > 100):
@@ -178,7 +178,7 @@ async def putflag_user_description(
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, 0x0200000000000002, 1, 0) # TODO: randomize
 
     payload = message.get_payload()
-    payload.management.target_port_id.clock_id = (0x0200000000000001).to_bytes(8, byteorder="big")
+    payload.management.target_port_id.clock_id = 0x0200000000000001
     payload.management.target_port_id.port = port
     payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_COMMAND
     payload.management.starting_boundary_hops = 0
@@ -236,7 +236,7 @@ async def getflag_user_description(
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, 0x0200000000000002, 1, 0) # TODO: randomize
 
     payload = message.get_payload()
-    payload.management.target_port_id.clock_id = (0x0200000000000001).to_bytes(8, "big")
+    payload.management.target_port_id.clock_id = 0x0200000000000001
     payload.management.target_port_id.port = port
     payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
 
@@ -287,7 +287,7 @@ async def exploit_user_description_strcmp(
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, 0x0200000000000002, 1, 0) # TODO: randomize
 
     payload = message.get_payload()
-    payload.management.target_port_id.clock_id = (0x0200000000000001).to_bytes(8, "big")
+    payload.management.target_port_id.clock_id = 0x0200000000000001
     payload.management.target_port_id.port = port
     payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
     payload.management.starting_boundary_hops = 0
@@ -373,7 +373,7 @@ async def exploit_user_description_replay(
     initial_message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, 0x0200000000000001, port, 0)
 
     payload = initial_message.get_payload()
-    payload.management.target_port_id.clock_id = (0x0200000000000001).to_bytes(8, byteorder="big")
+    payload.management.target_port_id.clock_id = 0x0200000000000001
     payload.management.target_port_id.port = port
     payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE
     payload.management.starting_boundary_hops = 0

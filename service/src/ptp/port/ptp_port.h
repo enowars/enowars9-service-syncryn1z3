@@ -7,7 +7,7 @@
 struct sqlite3;
 
 struct ptp_port_entry {
-    uint16_t port;
+    struct ptp_decoded_port_id port_id;
 
     bool active;
 
@@ -26,5 +26,5 @@ struct ptp_port_db {
 int ptp_port_db_setup(struct ptp_port_db *db, const char *filename);
 int ptp_port_db_cleanup(struct ptp_port_db *db);
 
-int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry **entry, uint16_t port);
+int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry **entry, struct ptp_decoded_port_id port_id);
 int ptp_port_db_set(struct ptp_port_db *db, struct ptp_port_entry *entry);

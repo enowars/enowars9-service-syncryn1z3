@@ -6,6 +6,7 @@
 #include <openssl/evp.h>
 
 #include <ptp/ptp.h>
+#include <ptp/ptp_helper.h>
 #include <ptp/port/ptp_port.h>
 #include <ptp/protocol/ptp_decoded.h>
 #include <ptp/security/ptp_security.h>
@@ -55,19 +56,17 @@ static int ptp_compute_icv(uint8_t *icv, struct common_message_info *info, struc
 }
 
 int ptp_security_add_auth_tlv(struct ptp_state *state, struct common_message_info *info) {
-    const int index = info->message.tlv_count++;
+    struct ptp_decoded_tlv *tlv = ptp_add_tlv(&info->message);
 
-    // Check that we have enough room to add TLV
-    if (info->message.tlv_count > PTP_MAX_TLV_COUNT) {
-        --info->message.tlv_count;
+    if (!tlv) {
         return -ENOMEM;
     }
 
-    info->message.tlvs[index].type = PTP_TLV_TYPE_AUTHENTICATION;
-    info->message.tlvs[index].payload.authentication.policy = PTP_AUTHENTICATION_POLICY_HMAC_128;
-    info->message.tlvs[index].payload.authentication.parameter_indicator = 0; // No optional field supported
-    info->message.tlvs[index].payload.authentication.key_id = info->message.port_id.port; // Reuse unique port
-    info->message.tlvs[index].payload.authentication.icv_length = PTP_HMAC_128_SIZE; // Constant ICV length
+    tlv->type = PTP_TLV_TYPE_AUTHENTICATION;
+    tlv->payload.authentication.policy = PTP_AUTHENTICATION_POLICY_HMAC_128;
+    tlv->payload.authentication.parameter_indicator = 0; // No optional field supported
+    tlv->payload.authentication.key_id = info->message.port_id.port; // Reuse unique port
+    tlv->payload.authentication.icv_length = PTP_HMAC_128_SIZE; // Constant ICV length
 
     return 0;
 }
@@ -89,7 +88,7 @@ int ptp_security_complete_auth_tlvs(struct ptp_state *state, struct common_messa
         }
 
         struct ptp_port_entry *entry;
-        ret = ptp_port_db_get(&state->port_db, &entry, info->message.port_id.port);
+        ret = ptp_port_db_get(&state->port_db, &entry, info->message.port_id);
         if (ret) {
             return ret;
         }
@@ -109,50 +108,55 @@ int ptp_security_complete_auth_tlvs(struct ptp_state *state, struct common_messa
     return 0;
 }
 
-int ptp_security_check_auth(struct ptp_state *state, struct common_message_info *info, uint16_t port) {
+int ptp_security_check_auth(struct ptp_state *state, struct common_message_info *info, struct ptp_decoded_tlv *tlv, struct ptp_decoded_port_id port_id) {
     int ret;
-    bool authenticated = false;
+
+    // This TLV was already checked
+    if (tlv->authenticated) {
+        return 0;
+    }
 
     struct ptp_port_entry *entry;
-    ret = ptp_port_db_get(&state->port_db, &entry, port);
+    ret = ptp_port_db_get(&state->port_db, &entry, port_id);
     if (ret) {
         return ret;
     }
-
-    // Only require authentication on active ports
-    authenticated = !entry->active;
     
-    for (int i = info->message.tlv_count - 1; i >= 0; --i) {
-        struct ptp_decoded_tlv *tlv = &info->message.tlvs[i];
-
-        if (tlv->type != PTP_TLV_TYPE_AUTHENTICATION) {
-            tlv->authenticated = authenticated;
-            continue;
+    // Skip to next auth TLV
+    while (++tlv <= &info->message.tlvs[info->message.tlv_count]) {
+        if (tlv->type == PTP_TLV_TYPE_AUTHENTICATION) {
+            goto check;
         }
-
-        if (tlv->payload.authentication.policy != entry->authentication_policy) {
-            return -EINVAL;
-        }
-
-        uint8_t icv[PTP_MAX_ICV_LENGTH];
-        ret = ptp_compute_icv(icv, info, &tlv->payload.authentication, entry);
-        if (ret < 0) {
-            return ret;
-        }
-
-        const int icv_length = ret;
-
-        // Truncate to 128 bits and compare
-        ret = memcmp(tlv->payload.authentication.icv, icv, icv_length);
-        if (ret) {
-            return ret; // Vulnerability: correct byte gets leaked
-        }
-
-        authenticated = true;
-        tlv->authenticated = true;
     }
 
-    info->message.authenticated = authenticated;
+    // No auth TLV found
+    return -ENODATA;
+    
+check:
+    if (tlv->payload.authentication.policy != entry->authentication_policy) {
+        return -EINVAL;
+    }
+
+    uint8_t icv[PTP_MAX_ICV_LENGTH];
+    ret = ptp_compute_icv(icv, info, &tlv->payload.authentication, entry);
+    if (ret < 0) {
+        return ret;
+    }
+
+    const int icv_length = ret;
+
+    // Truncate to 128 bits and compare
+    ret = memcmp(tlv->payload.authentication.icv, icv, icv_length);
+    if (ret) {
+        return ret; // Vulnerability: correct byte gets leaked
+    }
+
+    // Mark all previous TLVs
+    do {
+        tlv->authenticated = true;
+    } while (tlv-- >= info->message.tlvs);
+
+    info->message.authenticated = true;
 
     return 0;
 }

@@ -26,10 +26,8 @@
     General types
 */
 
-typedef uint8_t ptp_encoded_clock_id_t[8];
-
 struct ptp_encoded_port_id {
-    ptp_encoded_clock_id_t clock_id;
+    uint64_t clock_id;
     uint16_t port;
 } __attribute__((packed, aligned(1)));
 
@@ -131,7 +129,7 @@ struct ptp_encoded_announce_message {
     uint8_t grandmaster_priority_1;
     struct ptp_encoded_clock_quality grandmaster_clock_quality;
     uint8_t grandmaster_priority_2;
-    ptp_encoded_clock_id_t grandmaster_id;
+    uint64_t grandmaster_id;
     uint16_t steps_removed;
     uint8_t time_source;
 } __attribute__((packed, aligned(1)));

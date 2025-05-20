@@ -8,7 +8,7 @@
 #include <ptp/protocol/ptp_protocol.h>
 
 static void ptp_decode_port_id(struct ptp_decoded_port_id *output, struct ptp_encoded_port_id *input) {
-    memcpy(output->clock_id, input->clock_id, sizeof(input->clock_id));
+    output->clock_id = be64toh(input->clock_id);
     output->port = be16toh(input->port);
 }
 
@@ -137,7 +137,7 @@ static int ptp_decode_payload(struct ptp_decoded_message *output, uint8_t **inpu
 
             output->payload.announce.grandmaster_priority = (((uint16_t)payload->grandmaster_priority_1) << 8) | payload->grandmaster_priority_2;
             ptp_decode_clock_quality(&output->payload.announce.grandmaster_clock_quality, &payload->grandmaster_clock_quality);
-            memcpy(output->payload.announce.grandmaster_id, payload->grandmaster_id, sizeof(payload->grandmaster_id));
+            output->payload.announce.grandmaster_id = be64toh(payload->grandmaster_id);
 
             output->payload.announce.steps_removed = be16toh(payload->steps_removed);
             output->payload.announce.time_source = (enum ptp_time_source)payload->time_source;

@@ -32,7 +32,7 @@ def from_parameters(type, clock_id, port, sequence_id):
     message.decoded.sequence_id = sequence_id
     message.decoded.sdo_id = ptp_protocol.lib.ptp_sdo_id
     message.decoded.domain = ptp_protocol.lib.ptp_domain
-    message.decoded.port_id.clock_id = clock_id.to_bytes(8, byteorder="big")
+    message.decoded.port_id.clock_id = clock_id
     message.decoded.port_id.port = port
     message.decoded.flags = ptp_protocol.lib.PTP_FLAG_UNICAST
 
