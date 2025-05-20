@@ -131,12 +131,26 @@ Utility functions
 def generate_secret(length: int):
     return (''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(length)))
 
-def add_auth_tlv(message):
+def policy_to_int(policy: str):
+    if policy == "hmac":
+        return ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_HMAC_128
+    elif policy == "plain":
+        return ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_PLAIN
+    else:
+        raise InternalErrorException(f"Unknown policy {policy}")
+
+def add_auth_tlv(message, policy: str):
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION)
-    tlv.payload.authentication.policy = ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_HMAC_128
+    tlv.payload.authentication.policy = policy_to_int(policy)
     tlv.payload.authentication.parameter_indicator = 0
     tlv.payload.authentication.key_id = 0
-    tlv.payload.authentication.icv_length = 16
+
+    if policy == "hmac":
+        tlv.payload.authentication.icv_length = 16
+    elif policy == "plain":
+        tlv.payload.authentication.icv_length = 100
+    else:
+        raise InternalErrorException(f"Unknown policy {policy}")
 
 def finalize_auth_tlvs(request, secret=b"", icv=None):
     message = ptp_message.from_buffer(request)
@@ -145,15 +159,20 @@ def finalize_auth_tlvs(request, secret=b"", icv=None):
     for tlv in message.get_tlvs():
         if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
             continue
-        
+
         icv_address = tlv.payload.authentication.icv
+        
+        if tlv.payload.authentication.policy == policy_to_int("hmac"):
+            if icv is None:
+                icv = hmac.new(secret, bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
+        elif tlv.payload.authentication.policy == policy_to_int("plain"):
+            icv = secret + b'\0'
+        else:
+            raise InternalErrorException(f"Unknown policy in finalize")
 
-        if icv is None:
-            icv = hmac.new(secret, bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
+        ptp_protocol.ffi.memmove(icv_address, icv[:tlv.payload.authentication.icv_length], tlv.payload.authentication.icv_length)
 
-        ptp_protocol.ffi.memmove(icv_address, icv[:16], 16)
-
-async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, description: bytes, expect_error=False):
+async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, description: bytes, expect_error=False):
     if (len(secret) > 100):
         raise InternalErrorException("Secret too large")
 
@@ -171,7 +190,7 @@ async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: in
 
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
     tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM
-    tlv.payload.management.payload.port_claim.authentication_policy = ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_HMAC_128
+    tlv.payload.management.payload.port_claim.authentication_policy = policy_to_int(policy)
     ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.port_secret, secret + b'\0', len(secret) + 1)
     ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.user_description, description + b'\0', len(description) + 1)
 
@@ -205,7 +224,7 @@ async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: in
     if expect_error:
         raise MumbleException("Expected management error in PORT_CLAIM response")
 
-async def get_user_description(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, expected_description: bytes, expect_error=False):
+async def get_user_description(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, expected_description: bytes, expect_error=False):
     secret = secret + b'\x00' * (100 - len(secret))
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, 0x0200000000000002, 1, 0) # TODO: randomize
 
@@ -217,7 +236,7 @@ async def get_user_description(connection: Connection, logger: LoggerAdapter, cl
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
     tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
 
-    add_auth_tlv(message)
+    add_auth_tlv(message, policy)
     request = message.encode(connection.BUFFER_SIZE)
     finalize_auth_tlvs(request, secret=secret)
 
@@ -257,7 +276,7 @@ CHECKER FUNCTIONS
 """
 
 @checker.putflag(0)
-async def putflag_user_description(
+async def putflag_user_description_hmac(
     task: PutflagCheckerTaskMessage,
     db: ChainDB,
     connection: Connection,
@@ -267,14 +286,31 @@ async def putflag_user_description(
     port = random.randint(0x1, 0xfffe)
     secret = generate_secret(50)
 
-    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), task.flag.encode("utf-8"))
+    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", task.flag.encode("utf-8"))
+
+    await db.set("userdata", (port, secret))
+
+    return str(port)
+
+@checker.putflag(1)
+async def putflag_user_description_plain(
+    task: PutflagCheckerTaskMessage,
+    db: ChainDB,
+    connection: Connection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id = 0x0200000000000001
+    port = random.randint(0x1, 0xfffe)
+    secret = generate_secret(50)
+
+    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "plain", task.flag.encode("utf-8"))
 
     await db.set("userdata", (port, secret))
 
     return str(port)
 
 @checker.getflag(0)
-async def getflag_user_description(
+async def getflag_user_description_hmac(
     task: GetflagCheckerTaskMessage,
     db: ChainDB,
     connection: Connection,
@@ -287,7 +323,23 @@ async def getflag_user_description(
     except KeyError:
         raise MumbleException("Missing database entry from putflag")
 
-    await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), task.flag.encode("utf-8"))
+    await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", task.flag.encode("utf-8"))
+
+@checker.getflag(1)
+async def getflag_user_description_plain(
+    task: GetflagCheckerTaskMessage,
+    db: ChainDB,
+    connection: Connection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id = 0x0200000000000001
+
+    try:
+        port, secret = await db.get("userdata")
+    except KeyError:
+        raise MumbleException("Missing database entry from putflag")
+
+    await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "plain", task.flag.encode("utf-8"))
     
 @checker.putnoise(0)
 async def putnoise_user_description_twice(
@@ -301,8 +353,8 @@ async def putnoise_user_description_twice(
     secret = generate_secret(50)
     description = generate_secret(50)
 
-    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), description.encode("utf-8"))
-    error = await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), generate_secret(50).encode("utf-8"), True)
+    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", description.encode("utf-8"))
+    error = await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", generate_secret(50).encode("utf-8"), True)
 
     assert_equals(error, "Port already claimed", "Wrong error message")
 
@@ -320,10 +372,10 @@ async def putnoise_user_description_twice(
     except KeyError:
         raise MumbleException("Missing database entry from putflag")
 
-    await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), description.encode("utf-8"))
+    await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", description.encode("utf-8"))
 
 @checker.exploit(0)
-async def exploit_user_description_strcmp(
+async def exploit_user_description_memcmp(
     task: ExploitCheckerTaskMessage,
     connection: Connection,
     logger:LoggerAdapter
@@ -345,7 +397,7 @@ async def exploit_user_description_strcmp(
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
     tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
 
-    add_auth_tlv(message)
+    add_auth_tlv(message, "hmac")
     request = message.encode(connection.BUFFER_SIZE)
 
     icv = bytearray(16)
@@ -431,7 +483,7 @@ async def exploit_user_description_replay(
     tlv = initial_message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
     tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
 
-    add_auth_tlv(initial_message)
+    add_auth_tlv(initial_message, "hmac")
 
     connection.send(initial_message)
     response = await connection.receive_raw()

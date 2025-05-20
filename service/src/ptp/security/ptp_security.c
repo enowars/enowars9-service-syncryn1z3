@@ -14,27 +14,26 @@
 #define PTP_MAX_ICV_LENGTH 100
 #define PTP_HMAC_128_SIZE 16
 
-_Static_assert(PTP_MAX_ICV_LENGTH >= PTP_PORT_SECRET_SIZE);
-_Static_assert(PTP_MAX_ICV_LENGTH >= EVP_MAX_MD_SIZE);
-
-_Static_assert(PTP_HMAC_128_SIZE <= EVP_MAX_MD_SIZE);
-
-static int ptp_compute_icv_plain(uint8_t *icv, struct ptp_port_entry *entry) {
+static inline int ptp_compute_icv_plain(uint8_t *icv, struct ptp_port_entry *entry) {
     // Plaintext password
     strncpy((char *)icv, entry->secret, PTP_PORT_SECRET_SIZE);
 
     return strnlen(entry->secret, PTP_PORT_SECRET_SIZE);
 }
 
-static int ptp_compute_icv_hmac_128(uint8_t *icv, struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+static inline int ptp_compute_icv_hmac_128(uint8_t *icv, struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
     int ret;
 
     const uint8_t *data = (const uint8_t *)info->buffer.data;
     const unsigned int data_length = tlv->icv - data;
+    uint8_t icv_temp[EVP_MAX_MD_SIZE];
     unsigned int icv_length;
 
     // Calculate ICV
-    HMAC(EVP_sha256(), entry->secret, PTP_PORT_SECRET_SIZE, data, data_length, icv, &icv_length);
+    HMAC(EVP_sha256(), entry->secret, PTP_PORT_SECRET_SIZE, data, data_length, icv_temp, &icv_length);
+
+    // Truncate to 128 bits
+    memcpy(icv, icv_temp, PTP_HMAC_128_SIZE);
 
     return PTP_HMAC_128_SIZE;
 }
@@ -47,6 +46,54 @@ static int ptp_compute_icv(uint8_t *icv, struct common_message_info *info, struc
 
         case PTP_AUTHENTICATION_POLICY_HMAC_128: {
             return ptp_compute_icv_hmac_128(icv, info, tlv, entry);
+        }
+
+        default: {
+            return -EINVAL;
+        }
+    }
+}
+
+static inline int ptp_check_icv_plain(uint8_t *icv, struct ptp_port_entry *entry) {
+    int ret;
+
+    // Compare plaintext password
+    ret = strncmp((char *)icv, entry->secret, PTP_HMAC_128_SIZE);
+    if (ret) {
+        return -EPERM;
+    }
+
+    return 0;
+}
+
+static inline int ptp_check_icv_hmac_128(uint8_t *icv, struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+    int ret;
+
+    const uint8_t *data = (const uint8_t *)info->buffer.data;
+    const unsigned int data_length = tlv->icv - data;
+    uint8_t icv_temp[EVP_MAX_MD_SIZE];
+    unsigned int icv_length;
+
+    // Calculate ICV
+    HMAC(EVP_sha256(), entry->secret, PTP_PORT_SECRET_SIZE, data, data_length, icv_temp, &icv_length);
+
+    // Compare 128 bits
+    ret = memcmp(icv, icv_temp, PTP_HMAC_128_SIZE);
+    if (ret) {
+        return ret; //-EPERM; TODO: move vuln into web interface
+    }
+
+    return 0;
+}
+
+static int ptp_check_icv(uint8_t *icv, struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+    switch (tlv->policy) {
+        case PTP_AUTHENTICATION_POLICY_PLAIN: {
+            return ptp_check_icv_plain(icv, entry);
+        }
+
+        case PTP_AUTHENTICATION_POLICY_HMAC_128: {
+            return ptp_check_icv_hmac_128(icv, info, tlv, entry);
         }
 
         default: {
@@ -93,16 +140,10 @@ int ptp_security_complete_auth_tlvs(struct ptp_state *state, struct common_messa
             return ret;
         }
 
-        uint8_t icv[PTP_MAX_ICV_LENGTH];
-        ret = ptp_compute_icv(icv, info, &tlv->payload.authentication, entry);
+        ret = ptp_compute_icv(tlv->payload.authentication.icv, info, &tlv->payload.authentication, entry);
         if (ret < 0) {
             return ret;
         }
-
-        const int icv_length = ret;
-
-        // Truncate to 128 bits
-        memcpy(tlv->payload.authentication.icv, icv, icv_length);
     }
 
     return 0;
@@ -137,18 +178,9 @@ check:
         return -EINVAL;
     }
 
-    uint8_t icv[PTP_MAX_ICV_LENGTH];
-    ret = ptp_compute_icv(icv, info, &tlv->payload.authentication, entry);
+    ret = ptp_check_icv(tlv->payload.authentication.icv, info, &tlv->payload.authentication, entry);
     if (ret < 0) {
         return ret;
-    }
-
-    const int icv_length = ret;
-
-    // Truncate to 128 bits and compare
-    ret = memcmp(tlv->payload.authentication.icv, icv, icv_length);
-    if (ret) {
-        return ret; // Vulnerability: correct byte gets leaked
     }
 
     // Mark all previous TLVs
