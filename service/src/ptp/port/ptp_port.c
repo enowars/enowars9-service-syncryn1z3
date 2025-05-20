@@ -158,7 +158,7 @@ int ptp_port_db_set(struct ptp_port_db *db, struct ptp_port_entry *entry) {
 
     if (entry->active) {
         const char *insert_query =
-            "INSERT OR REPLACE INTO ports(clock_id, port, authentication_policy, secret, user_description)\n"
+            "INSERT INTO ports(clock_id, port, authentication_policy, secret, user_description)\n"
             "VALUES (?, ?, ?, ?, ?);";
 
         ret = sqlite3_prepare_v2(db->handle, insert_query, -1, &statement, 0);

@@ -129,7 +129,7 @@ Utility functions
 """
 
 def generate_secret(length: int):
-    return (''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(length))).encode("ascii")
+    return (''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(length)))
 
 def add_auth_tlv(message):
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION)
@@ -153,32 +153,17 @@ def finalize_auth_tlvs(request, secret=b"", icv=None):
 
         ptp_protocol.ffi.memmove(icv_address, icv[:16], 16)
 
-
-"""
-CHECKER FUNCTIONS
-"""
-
-@checker.putflag(0)
-async def putflag_user_description(
-    task: PutflagCheckerTaskMessage,
-    db: ChainDB,
-    connection: Connection,
-    logger: LoggerAdapter,    
-) -> None:
-    port = random.randint(0x1, 0xfffe)
-    secret = generate_secret(50)
-
+async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, description: bytes, expect_error=False):
     if (len(secret) > 100):
         raise InternalErrorException("Secret too large")
 
-    description = task.flag.encode("utf-8")
     if (len(description) > 128):
         raise InternalErrorException("User description too large")
     
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, 0x0200000000000002, 1, 0) # TODO: randomize
 
     payload = message.get_payload()
-    payload.management.target_port_id.clock_id = 0x0200000000000001
+    payload.management.target_port_id.clock_id = clock_id
     payload.management.target_port_id.port = port
     payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_COMMAND
     payload.management.starting_boundary_hops = 0
@@ -199,44 +184,33 @@ async def putflag_user_description(
     if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_ACKNOWLEDGE:
         raise MumbleException("Expected management acknowledge action")
 
-    await db.set("userdata", (port, secret))
-
-    received_flag = None
+    received_description = None
 
     for tlv in response.get_tlvs():
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM:
-                received_flag = ptp_protocol.ffi.string(tlv.payload.management.payload.port_claim.user_description)
+                received_description = ptp_protocol.ffi.string(tlv.payload.management.payload.port_claim.user_description)
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
-            logger.debug(f"Unexpected management error (putflag): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
-            raise MumbleException("Unexpected management error in PORT_CLAIM response")
+            if expect_error:
+                return ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()
+            else:
+                logger.debug(f"Unexpected management error (claim_port): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
+                raise MumbleException("Unexpected management error in PORT_CLAIM response")
 
-    if received_flag is None:
+    if received_description is None:
         raise MumbleException("Received no PORT_CLAIM TLV")
-
-    if received_flag != description:
-        logger.debug(f"Received wrong flag: {received_flag} vs {description}")
-        raise MumbleException("Received wrong flag in PORT_CLAIM response")
     
-    return str(port)
+    assert_equals(received_description, description, "Received wrong user description in PORT_CLAIM response")
+    
+    if expect_error:
+        raise MumbleException("Expected management error in PORT_CLAIM response")
 
-@checker.getflag(0)
-async def getflag_user_description(
-    task: GetflagCheckerTaskMessage,
-    db: ChainDB,
-    connection: Connection,
-    logger: LoggerAdapter,    
-) -> None:
-    try:
-        port, secret = await db.get("userdata")
-    except KeyError:
-        raise MumbleException("Missing database entry from putflag")
-
+async def get_user_description(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, expected_description: bytes, expect_error=False):
     secret = secret + b'\x00' * (100 - len(secret))
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, 0x0200000000000002, 1, 0) # TODO: randomize
 
     payload = message.get_payload()
-    payload.management.target_port_id.clock_id = 0x0200000000000001
+    payload.management.target_port_id.clock_id = clock_id
     payload.management.target_port_id.port = port
     payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
 
@@ -256,23 +230,98 @@ async def getflag_user_description(
     if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE:
         raise MumbleException("Expected management response action")
 
-    received_flag = None
+    received_description = None
 
     for tlv in response.get_tlvs():
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
-                received_flag = ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
+                received_description = ptp_protocol.ffi.string(tlv.payload.management.payload.user_description)
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
-            logger.debug(f"Unexpected management error (getflag): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
-            raise MumbleException("Unexpected management error in USER_DESCRIPTION response")
+            if expect_error:
+                return ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()
+            else:
+                logger.debug(f"Unexpected management error (get user description): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
+                raise MumbleException("Unexpected management error in USER_DESCRIPTION response")
 
-    if received_flag is None:
+    if received_description is None:
         raise MumbleException("Received no USER_DESCRIPTION TLV")
     
-    if received_flag != task.flag:    
-        logger.debug(f"Received wrong flag (getflag): {received_flag} vs {task.flag}")
-        raise MumbleException("Received wrong flag in USER_DESCRIPTION response")
+    logger.debug(f"{received_description} {expected_description}")
+    assert_equals(received_description, expected_description, "Received wrong user description in USER_DESCRIPTION response")
+
+    if expect_error:
+        raise MumbleException("Expected management error in USER_DESCRIPTION response")
+
+"""
+CHECKER FUNCTIONS
+"""
+
+@checker.putflag(0)
+async def putflag_user_description(
+    task: PutflagCheckerTaskMessage,
+    db: ChainDB,
+    connection: Connection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id = 0x0200000000000001
+    port = random.randint(0x1, 0xfffe)
+    secret = generate_secret(50)
+
+    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), task.flag.encode("utf-8"))
+
+    await db.set("userdata", (port, secret))
+
+    return str(port)
+
+@checker.getflag(0)
+async def getflag_user_description(
+    task: GetflagCheckerTaskMessage,
+    db: ChainDB,
+    connection: Connection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id = 0x0200000000000001
+
+    try:
+        port, secret = await db.get("userdata")
+    except KeyError:
+        raise MumbleException("Missing database entry from putflag")
+
+    await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), task.flag.encode("utf-8"))
     
+@checker.putnoise(0)
+async def putnoise_user_description_twice(
+    task: PutnoiseCheckerTaskMessage,
+    db: ChainDB,
+    connection: Connection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id = random.randint(0x0200000000000001, 0x02ffffffffffffff)
+    port = random.randint(0x1, 0xfffe)
+    secret = generate_secret(50)
+    description = generate_secret(50)
+
+    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), description.encode("utf-8"))
+    error = await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), generate_secret(50).encode("utf-8"), True)
+
+    assert_equals(error, "Port already claimed", "Wrong error message")
+
+    await db.set("userdata", (clock_id, port, secret, description))
+    
+@checker.getnoise(0)
+async def putnoise_user_description_twice(
+    task: GetnoiseCheckerTaskMessage,
+    db: ChainDB,
+    connection: Connection,
+    logger: LoggerAdapter,    
+) -> None:
+    try:
+        clock_id, port, secret, description = await db.get("userdata")
+    except KeyError:
+        raise MumbleException("Missing database entry from putflag")
+
+    await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), description.encode("utf-8"))
+
 @checker.exploit(0)
 async def exploit_user_description_strcmp(
     task: ExploitCheckerTaskMessage,
