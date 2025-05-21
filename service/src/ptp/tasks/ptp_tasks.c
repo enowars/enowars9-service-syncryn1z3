@@ -182,6 +182,46 @@ out:
     return ret;
 }
 
+static int ptp_handle_management_time_get(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_tlv *request_tlv) {
+    int ret;
+    struct ptp_port_entry *entry;
+    struct common_message_info *response;
+    struct ptp_decoded_tlv *tlv;
+
+    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_GENERAL, request->message.payload.management.target_port_id);
+    if (ret) {
+        return ret;
+    }
+
+    memcpy(&response->address, &request->address, sizeof(request->address));
+
+    response->message.type = PTP_MESSAGE_TYPE_MANAGEMENT;
+    response->message.sequence_id = request->message.sequence_id;
+    response->message.flags = PTP_FLAG_UNICAST;
+
+    response->message.payload.management.action = PTP_MANAGEMENT_ACTION_RESPONSE;
+    response->message.payload.management.starting_boundary_hops = 0;
+    response->message.payload.management.boundary_hops = 0;
+    memcpy(&response->message.payload.management.target_port_id, &request->message.port_id, sizeof(request->message.port_id));
+
+    tlv = ptp_add_tlv(&response->message);
+    tlv->type = PTP_TLV_TYPE_MANAGEMENT;
+    tlv->payload.management.id = PTP_MANAGEMENT_ID_TIME;
+
+    tlv->payload.management.payload.time = util_get_time_ns();
+
+    ret = ptp_encode_and_enqueue_message(state, response);
+    if (ret) {
+        goto out;
+    }
+    
+    return 0;
+
+out:
+    util_mempool_put(response);
+    return ret;
+}
+
 static int ptp_handle_management_port_claim(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_tlv *request_tlv) {
     int ret;
     struct ptp_port_entry entry;
@@ -300,12 +340,15 @@ static int ptp_handle_tlv_management(struct ptp_state *state, struct common_mess
     switch (tlv->payload.management.id) {
         case PTP_MANAGEMENT_ID_USER_DESCRIPTION: {
             if (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_GET) {
-                ret = ptp_handle_management_user_description_get(state, request, tlv);
-                if (ret) {
-                    return ret;
-                }
-            } else {
-                return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->payload.management.id, "Unsupported action");
+                return ptp_handle_management_user_description_get(state, request, tlv);
+            }
+
+            break;
+        }
+
+        case PTP_MANAGEMENT_ID_TIME: {
+            if (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_GET) {
+                return ptp_handle_management_time_get(state, request, tlv);
             }
 
             break;
@@ -313,12 +356,7 @@ static int ptp_handle_tlv_management(struct ptp_state *state, struct common_mess
 
         case PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM: {
             if (request->message.payload.management.action == PTP_MANAGEMENT_ACTION_COMMAND) {
-                ret = ptp_handle_management_port_claim(state, request, tlv);
-                if (ret) {
-                    return ret;
-                }
-            } else {
-                return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->payload.management.id, "Action not supported");
+                return ptp_handle_management_port_claim(state, request, tlv);
             }
 
             break;
@@ -329,7 +367,7 @@ static int ptp_handle_tlv_management(struct ptp_state *state, struct common_mess
         }
     }
 
-    return 0;
+    return ptp_management_error(state, request, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->payload.management.id, "Unsupported action");
 }
 
 static int ptp_handle_message_delay_request(struct ptp_state *state, struct common_message_info *request) {

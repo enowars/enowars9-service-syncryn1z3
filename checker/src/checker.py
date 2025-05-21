@@ -128,8 +128,22 @@ def _get_connection(protocol: typing.AsyncIterator[UdpClientProtocol], logger: L
 Utility functions
 """
 
+def generate_port_id():
+    clock_id = random.randint(0x0200000000000001, 0x02ffffffffffffff)
+    port = random.randint(0x1, 0xfffe)
+
+    return clock_id, port
+
 def generate_secret(length: int):
     return (''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(length)))
+
+def encode_port_id(clock_id: int, port: int):
+    return hex(clock_id) + ":" + hex(port)
+
+def decode_port_id(port_id: str):
+    parts = port_id.split(":")
+    
+    return int(parts[0], 16), int(parts[1], 16)
 
 def policy_to_int(policy: str):
     if policy == "hmac":
@@ -179,7 +193,8 @@ async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: in
     if (len(description) > 128):
         raise InternalErrorException("User description too large")
     
-    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, 0x0200000000000002, 1, 0) # TODO: randomize
+    local_clock_id, local_port = generate_port_id()
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
 
     payload = message.get_payload()
     payload.management.target_port_id.clock_id = clock_id
@@ -224,9 +239,11 @@ async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: in
     if expect_error:
         raise MumbleException("Expected management error in PORT_CLAIM response")
 
-async def get_user_description(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, expected_description: bytes, expect_error=False):
+async def get_user_description(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, expect_error=False):
     secret = secret + b'\x00' * (100 - len(secret))
-    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, 0x0200000000000002, 1, 0) # TODO: randomize
+
+    local_clock_id, local_port = generate_port_id()
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
 
     payload = message.get_payload()
     payload.management.target_port_id.clock_id = clock_id
@@ -262,14 +279,52 @@ async def get_user_description(connection: Connection, logger: LoggerAdapter, cl
                 logger.debug(f"Unexpected management error (get user description): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
                 raise MumbleException("Unexpected management error in USER_DESCRIPTION response")
 
-    if received_description is None:
-        raise MumbleException("Received no USER_DESCRIPTION TLV")
+    if expect_error:
+        raise MumbleException("Expected management error in USER_DESCRIPTION response")
     
-    logger.debug(f"{received_description} {expected_description}")
-    assert_equals(received_description, expected_description, "Received wrong user description in USER_DESCRIPTION response")
+    return received_description.decode()
+    
+async def get_time(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, expect_error=False):
+    local_clock_id, local_port = generate_port_id()
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
+
+    payload = message.get_payload()
+    payload.management.target_port_id.clock_id = clock_id
+    payload.management.target_port_id.port = port
+    payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
+
+    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+    tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_TIME
+
+    connection.send(message)
+    response = await connection.receive()
+
+    if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
+        raise MumbleException("Expected management message in response")
+    
+    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE:
+        raise MumbleException("Expected management response action")
+
+    current_time = None
+
+    for tlv in response.get_tlvs():
+        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
+            if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_TIME:
+                current_time = tlv.payload.management.payload.time
+        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
+            if expect_error:
+                return ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()
+            else:
+                logger.debug(f"Unexpected management error (get time): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
+                raise MumbleException("Unexpected management error in TIME response")
+
+    if current_time is None:
+        raise MumbleException("Received no TIME TLV")
 
     if expect_error:
         raise MumbleException("Expected management error in USER_DESCRIPTION response")
+    
+    return current_time
 
 """
 CHECKER FUNCTIONS
@@ -282,16 +337,15 @@ async def putflag_user_description_hmac(
     connection: Connection,
     logger: LoggerAdapter,    
 ) -> None:
-    clock_id = 0x0200000000000001
-    port = random.randint(0x1, 0xfffe)
+    clock_id, port = generate_port_id()
     secret = generate_secret(50)
 
     await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", task.flag.encode("utf-8"))
 
-    await db.set("userdata", (port, secret))
+    await db.set("userdata", (clock_id, port, secret))
 
-    return str(port)
-
+    return encode_port_id(clock_id, port)
+"""
 @checker.putflag(1)
 async def putflag_user_description_plain(
     task: PutflagCheckerTaskMessage,
@@ -299,16 +353,15 @@ async def putflag_user_description_plain(
     connection: Connection,
     logger: LoggerAdapter,    
 ) -> None:
-    clock_id = 0x0200000000000001
-    port = random.randint(0x1, 0xfffe)
+    clock_id, port = generate_port_id()
     secret = generate_secret(50)
 
     await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "plain", task.flag.encode("utf-8"))
 
-    await db.set("userdata", (port, secret))
+    await db.set("userdata", (clock_id, port, secret))
 
-    return str(port)
-
+    return encode_port_id(clock_id, port)
+"""
 @checker.getflag(0)
 async def getflag_user_description_hmac(
     task: GetflagCheckerTaskMessage,
@@ -316,15 +369,18 @@ async def getflag_user_description_hmac(
     connection: Connection,
     logger: LoggerAdapter,    
 ) -> None:
-    clock_id = 0x0200000000000001
-
     try:
-        port, secret = await db.get("userdata")
+        clock_id, port, secret = await db.get("userdata")
     except KeyError:
         raise MumbleException("Missing database entry from putflag")
 
-    await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", task.flag.encode("utf-8"))
+    received_description = await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
 
+    if received_description is None:
+        raise MumbleException("Received no USER_DESCRIPTION TLV")
+    
+    assert_equals(received_description, task.flag, "Received wrong flag")
+"""
 @checker.getflag(1)
 async def getflag_user_description_plain(
     task: GetflagCheckerTaskMessage,
@@ -332,15 +388,15 @@ async def getflag_user_description_plain(
     connection: Connection,
     logger: LoggerAdapter,    
 ) -> None:
-    clock_id = 0x0200000000000001
-
     try:
-        port, secret = await db.get("userdata")
+        clock_id, port, secret = await db.get("userdata")
     except KeyError:
         raise MumbleException("Missing database entry from putflag")
 
-    await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "plain", task.flag.encode("utf-8"))
-    
+    received_description = await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "plain")
+
+    assert_equals(received_description, task.flag, "Received wrong flag")
+"""
 @checker.putnoise(0)
 async def putnoise_user_description_twice(
     task: PutnoiseCheckerTaskMessage,
@@ -348,8 +404,7 @@ async def putnoise_user_description_twice(
     connection: Connection,
     logger: LoggerAdapter,    
 ) -> None:
-    clock_id = random.randint(0x0200000000000001, 0x02ffffffffffffff)
-    port = random.randint(0x1, 0xfffe)
+    clock_id, port = generate_port_id()
     secret = generate_secret(50)
     description = generate_secret(50)
 
@@ -372,7 +427,26 @@ async def putnoise_user_description_twice(
     except KeyError:
         raise MumbleException("Missing database entry from putflag")
 
-    await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", description.encode("utf-8"))
+    received_description = await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
+    assert_equals(received_description, description, "Received wrong description")
+
+@checker.havoc(0)
+async def havoc_get_time(
+    task: HavocCheckerTaskMessage,
+    connection: Connection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id, port = generate_port_id()
+
+    last_time = 0
+
+    for _ in range(3):
+        current_time = await get_time(connection, logger, clock_id, port)
+
+        if current_time <= last_time:
+            raise MumbleException("Timejump detected")
+        
+        last_time = current_time
 
 @checker.exploit(0)
 async def exploit_user_description_memcmp(
@@ -383,12 +457,13 @@ async def exploit_user_description_memcmp(
     if task.attack_info is None:
         raise MumbleException("No attack info")
     
-    port = int(task.attack_info)
+    clock_id, port = decode_port_id(task.attack_info)
+    local_clock_id, local_port = generate_port_id()
 
-    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, 0x0200000000000002, 1, 0) # TODO: randomize
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
 
     payload = message.get_payload()
-    payload.management.target_port_id.clock_id = 0x0200000000000001
+    payload.management.target_port_id.clock_id = clock_id
     payload.management.target_port_id.port = port
     payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
     payload.management.starting_boundary_hops = 0
@@ -468,13 +543,13 @@ async def exploit_user_description_replay(
     if task.attack_info is None:
         raise MumbleException("No attack info")
     
-    port = int(task.attack_info)
+    clock_id, port = decode_port_id(task.attack_info)
 
     # Spoof target port
-    initial_message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, 0x0200000000000001, port, 0)
+    initial_message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, clock_id, port, 0)
 
     payload = initial_message.get_payload()
-    payload.management.target_port_id.clock_id = 0x0200000000000001
+    payload.management.target_port_id.clock_id = clock_id
     payload.management.target_port_id.port = port
     payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE
     payload.management.starting_boundary_hops = 0

@@ -218,6 +218,12 @@ struct ptp_encoded_authetication_tlv {
 
 _Static_assert(sizeof(struct ptp_encoded_authetication_tlv) == 6);
 
+struct ptp_encoded_management_tlv_time {
+    struct ptp_encoded_timestamp current_time;
+} __attribute__((packed, aligned(1)));
+
+_Static_assert(sizeof(struct ptp_encoded_management_tlv_time) == 10);
+
 struct ptp_encoded_management_tlv_port_claim {
     uint8_t authentication_policy;
 } __attribute__((packed, aligned(1)));

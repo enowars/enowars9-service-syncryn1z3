@@ -216,6 +216,19 @@ static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, 
             break;
         }
 
+        case PTP_MANAGEMENT_ID_TIME: {
+            struct ptp_encoded_management_tlv_time *header = (struct ptp_encoded_management_tlv_time *)head;
+            head += sizeof(*header);
+
+            if (head > tlv_tail) {
+                return -1;
+            }
+
+            ptp_decode_timestamp(&output->payload.time, &header->current_time);
+
+            break;
+        }
+
         case PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM: {
             struct ptp_encoded_management_tlv_port_claim *header = (struct ptp_encoded_management_tlv_port_claim *)head;
             output->payload.port_claim.authentication_policy = (enum ptp_authentication_policy)header->authentication_policy;

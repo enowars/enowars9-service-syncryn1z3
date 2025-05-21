@@ -35,6 +35,7 @@ struct ptp_decoded_clock_quality {
 
 union ptp_decoded_management_tlv_payload {
     char user_description[PTP_USER_DESCRIPTION_SIZE + 1];
+    ptp_decoded_timestamp_t time;
 
     struct {
         enum ptp_authentication_policy authentication_policy;
