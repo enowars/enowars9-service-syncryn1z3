@@ -5,7 +5,7 @@
 
 #include <ptp/protocol/ptp_constants.h>
 
-#define PTP_MAX_TLV_COUNT 8
+#define PTP_MAX_TLV_COUNT 32
 
 #define PTP_USER_DESCRIPTION_SIZE 128
 #define PTP_PORT_SECRET_SIZE 100

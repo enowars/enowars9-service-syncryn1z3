@@ -20,7 +20,7 @@ class PtpMessage:
         
         ret = ptp_protocol.lib.ptp_encode_message(buffer, self.decoded, buffer_size)
         if (ret < 0):
-            raise RuntimeError("Failed to encode message")
+            raise RuntimeError(f"Failed to encode message: {-ret}")
         
         return ptp_protocol.ffi.buffer(buffer, ret)[:]
     
@@ -44,6 +44,6 @@ def from_buffer(buffer: bytes):
 
     ret = ptp_protocol.lib.ptp_decode_message(message.decoded, buffer, len(buffer))
     if (ret < 0):
-        raise RuntimeError("Failed to decode message")
+        raise RuntimeError(f"Failed to decode message: {-ret}")
     
     return message

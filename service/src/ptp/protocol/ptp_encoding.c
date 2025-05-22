@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <endian.h>
 #include <stdint.h>
 #include <string.h>
@@ -38,7 +39,7 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
             head += sizeof(struct ptp_encoded_sync_message);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             ptp_encode_timestamp(&payload->origin_timestamp, input->payload.event.timestamp);
@@ -51,7 +52,7 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
             head += sizeof(struct ptp_encoded_delay_request_message);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             ptp_encode_timestamp(&payload->origin_timestamp, input->payload.event.timestamp);
@@ -64,7 +65,7 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
             head += sizeof(struct ptp_encoded_pdelay_request_message);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             ptp_encode_timestamp(&payload->origin_timestamp, input->payload.event.timestamp);
@@ -77,7 +78,7 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
             head += sizeof(struct ptp_encoded_pdelay_response_message);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             ptp_encode_timestamp(&payload->receive_timestamp, input->payload.event.timestamp);
@@ -91,7 +92,7 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
             head += sizeof(struct ptp_encoded_pdelay_response_message);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             ptp_encode_timestamp(&payload->receive_timestamp, input->payload.event.timestamp);
@@ -105,7 +106,7 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
             head += sizeof(struct ptp_encoded_delay_response_message);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             ptp_encode_timestamp(&payload->receive_timestamp, input->payload.event.timestamp);
@@ -119,7 +120,7 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
             head += sizeof(struct ptp_encoded_pdelay_response_follow_up_message);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             ptp_encode_timestamp(&payload->receive_timestamp, input->payload.event.timestamp);
@@ -133,7 +134,7 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
             head += sizeof(struct ptp_encoded_announce_message);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             ptp_encode_timestamp(&payload->origin_timestamp, input->payload.announce.timestamp);
@@ -155,7 +156,7 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
             head += sizeof(struct ptp_encoded_signaling_message);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             ptp_encode_port_id(&payload->target_port_id, &input->payload.signaling.target_port_id);
@@ -168,7 +169,7 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
             head += sizeof(struct ptp_encoded_management_message);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             ptp_encode_port_id(&payload->target_port_id, &input->payload.management.target_port_id);
@@ -181,7 +182,7 @@ static int ptp_encode_payload(uint8_t **output, struct ptp_decoded_message *inpu
         }
 
         default: {
-            return -1;
+            return -EINVAL;
         }
     }
 
@@ -197,7 +198,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
     head += sizeof(struct ptp_encoded_management_tlv);
 
     if (head > tail) {
-        return -1;
+        return -EMSGSIZE;
     }
 
     payload->management_id = htobe16((uint16_t)input->id);
@@ -211,7 +212,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
             string_head += sizeof(*string_header);
 
             if (string_head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             string_header->length = strnlen(input->payload.user_description, PTP_USER_DESCRIPTION_SIZE);
@@ -219,7 +220,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
             int actual_length = total_length + (total_length & 0x1); // Add padding to get 2-byte alignment
 
             if (head + actual_length > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             memcpy((char *)string_head, input->payload.user_description, string_header->length);
@@ -234,7 +235,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
             head += sizeof(*header);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             ptp_encode_timestamp(&header->current_time, input->payload.time);
@@ -247,7 +248,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
             head += sizeof(struct ptp_encoded_management_tlv_port_claim);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             header->authentication_policy = input->payload.port_claim.authentication_policy;
@@ -259,7 +260,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
             string_head += sizeof(*string_header);
 
             if (string_head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             string_header->length = strnlen(input->payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
@@ -267,7 +268,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
             total_length += sizeof(*string_header) + string_header->length;
 
             if (string_head + string_header->length > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             memcpy((char *)string_head, input->payload.port_claim.port_secret, string_header->length);
@@ -278,7 +279,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
             string_head += sizeof(*string_header);
 
             if (string_head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             string_header->length = strnlen(input->payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);
@@ -286,7 +287,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
             int actual_length = total_length + (total_length & 0x1); // Add padding to get 2-byte alignment
 
             if (head + actual_length > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             memcpy((char *)string_head, input->payload.port_claim.user_description, string_header->length);
@@ -297,7 +298,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
         }
 
         default: {
-            return -1;
+            return -EINVAL;
         }
     }
 
@@ -313,7 +314,7 @@ static int ptp_encode_management_error_status_tlv(uint8_t **output, struct ptp_d
     head += sizeof(struct ptp_encoded_management_error_status_tlv);
 
     if (head > tail) {
-        return -1;
+        return -EMSGSIZE;
     }
 
     payload->management_error_id = htobe16((uint16_t)input->error_id);
@@ -323,14 +324,14 @@ static int ptp_encode_management_error_status_tlv(uint8_t **output, struct ptp_d
     head += sizeof(*string_header);
 
     if (head > tail) {
-        return -1;
+        return -EMSGSIZE;
     }
 
     string_header->length = strnlen(input->display_data, PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE);
     int actual_length = string_header->length + (~string_header->length & 0x1); // Add padding to get 2-byte alignment
 
     if (head + actual_length > tail) {
-        return -1;
+        return -EMSGSIZE;
     }
 
     memcpy((char *)head, input->display_data, string_header->length);
@@ -352,7 +353,7 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
     head += sizeof(struct ptp_encoded_tlv_header);
 
     if (head > tail) {
-        return -1;
+        return -EMSGSIZE;
     }
 
     switch (input->type) {
@@ -379,7 +380,7 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
             head += sizeof(struct ptp_encoded_request_unicast_transmission_tlv);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             payload->message_type = (input->payload.request_unicast.type << PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT) & PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK;
@@ -394,7 +395,7 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
             head += sizeof(struct ptp_encoded_grant_unicast_transmission_tlv);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             payload->message_type = (input->payload.grant_unicast.type << PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT) & PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK;
@@ -410,7 +411,7 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
             head += sizeof(struct ptp_encoded_cancel_unicast_transmission_tlv);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             payload->message_type_flags = (input->payload.cancel_unicast.type << PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT) & PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK;
@@ -424,7 +425,7 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
             head += sizeof(struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv);
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             payload->message_type_flags = (input->payload.acknowledge_cancel_unicast.type << PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_SHIFT) & PTP_ENCODED_MESSAGE_TLV_UNICAST_TYPE_MASK;
@@ -438,7 +439,7 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
             head += input->payload.pad.length;
 
             if (head > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             break;
@@ -449,7 +450,7 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
             head += sizeof(struct ptp_encoded_authetication_tlv);
 
             if (head + input->payload.authentication.icv_length > tail) {
-                return -1;
+                return -EMSGSIZE;
             }
 
             payload->policy = input->payload.authentication.policy;
@@ -464,7 +465,7 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
         }
 
         default: {
-            return -1;
+            return -EINVAL;
         }
     }
 
@@ -484,7 +485,7 @@ int ptp_encode_message(uint8_t *output, struct ptp_decoded_message *input, short
     head += sizeof(struct ptp_encoded_message_header);
 
     if (head > tail) {
-        return -1;
+        return -EMSGSIZE;
     }
 
     header->major_sdo_id_type = ((input->type << PTP_ENCODED_MESSAGE_HEADER_TYPE_SHIFT) & PTP_ENCODED_MESSAGE_HEADER_TYPE_MASK) | (((input->sdo_id & 0xf00) >> 8) << PTP_ENCODED_MESSAGE_HEADER_MAJOR_SDO_ID_SHIFT);

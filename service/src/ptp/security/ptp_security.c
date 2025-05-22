@@ -14,20 +14,73 @@
 #define PTP_MAX_ICV_LENGTH 100
 #define PTP_HMAC_128_SIZE 16
 
-static inline int ptp_compute_icv_plain(uint8_t *icv, struct ptp_port_entry *entry) {
+// TODO: move this into libc
+static inline __attribute__((always_inline)) uint64_t get_time() {
+    int ret;
+    struct timespec now;
+
+    ret = clock_gettime(CLOCK_MONOTONIC, &now);
+
+    return now.tv_sec * 1000000000 + now.tv_nsec;
+}
+
+// TODO: move this into libc
+static int custom_strncpy(const char *a, const char *b, unsigned int len) {
+    int i;
+    int ret;
+
+    //printf("test %d, %hhx %hhx\n", len, *pa, *pb);
+
+    uint64_t start_time = get_time();
+    
+    for (i = 0; i < len; ++i) {
+        ret = (int)*a - (int)*b;
+
+        if (ret) {
+            goto end;
+        }
+
+        if (*a == '\0' || *b == '\0') {
+            goto end;
+        }
+
+        ++a;
+        ++b;
+    }
+
+    ret = 0;
+
+end:
+    uint64_t target_time = start_time + i * 2500;
+
+    while (true) {
+        uint64_t current_time = get_time();
+
+        if (current_time >= target_time) {
+            break;
+        }
+    }
+
+    return ret;
+}
+
+static inline int ptp_compute_icv_plain(struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+    char *icv = (char *)tlv->icv;
+
     // Plaintext password
-    strncpy((char *)icv, entry->secret, PTP_PORT_SECRET_SIZE);
+    strncpy(icv, entry->secret, PTP_PORT_SECRET_SIZE);
 
     return strnlen(entry->secret, PTP_PORT_SECRET_SIZE);
 }
 
-static inline int ptp_compute_icv_hmac_128(uint8_t *icv, struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+static inline int ptp_compute_icv_hmac_128(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
     int ret;
 
-    const uint8_t *data = (const uint8_t *)info->buffer.data;
-    const unsigned int data_length = tlv->icv - data;
+    uint8_t *icv = tlv->icv;
     uint8_t icv_temp[EVP_MAX_MD_SIZE];
     unsigned int icv_length;
+    const uint8_t *data = (const uint8_t *)info->buffer.data;
+    const unsigned int data_length = icv - data;
 
     // Calculate ICV
     HMAC(EVP_sha256(), entry->secret, PTP_PORT_SECRET_SIZE, data, data_length, icv_temp, &icv_length);
@@ -38,14 +91,14 @@ static inline int ptp_compute_icv_hmac_128(uint8_t *icv, struct common_message_i
     return PTP_HMAC_128_SIZE;
 }
 
-static int ptp_compute_icv(uint8_t *icv, struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+static int ptp_compute_icv(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
     switch (tlv->policy) {
         case PTP_AUTHENTICATION_POLICY_PLAIN: {
-            return ptp_compute_icv_plain(icv, entry);
+            return ptp_compute_icv_plain(tlv, entry);
         }
 
         case PTP_AUTHENTICATION_POLICY_HMAC_128: {
-            return ptp_compute_icv_hmac_128(icv, info, tlv, entry);
+            return ptp_compute_icv_hmac_128(info, tlv, entry);
         }
 
         default: {
@@ -54,11 +107,13 @@ static int ptp_compute_icv(uint8_t *icv, struct common_message_info *info, struc
     }
 }
 
-static inline int ptp_check_icv_plain(uint8_t *icv, struct ptp_port_entry *entry) {
+static inline int ptp_check_icv_plain(struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
     int ret;
 
+    char *icv = (char *)tlv->icv;
+
     // Compare plaintext password
-    ret = strncmp((char *)icv, entry->secret, PTP_HMAC_128_SIZE);
+    ret = custom_strncpy((char *)icv, entry->secret, PTP_MAX_ICV_LENGTH);
     if (ret) {
         return -EPERM;
     }
@@ -66,19 +121,20 @@ static inline int ptp_check_icv_plain(uint8_t *icv, struct ptp_port_entry *entry
     return 0;
 }
 
-static inline int ptp_check_icv_hmac_128(uint8_t *icv, struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+static inline int ptp_check_icv_hmac_128(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
     int ret;
 
-    const uint8_t *data = (const uint8_t *)info->buffer.data;
-    const unsigned int data_length = tlv->icv - data;
+    uint8_t *icv = tlv->icv;
     uint8_t icv_temp[EVP_MAX_MD_SIZE];
     unsigned int icv_length;
+    const uint8_t *data = (const uint8_t *)info->buffer.data;
+    const unsigned int data_length = icv - data;
 
     // Calculate ICV
     HMAC(EVP_sha256(), entry->secret, PTP_PORT_SECRET_SIZE, data, data_length, icv_temp, &icv_length);
 
     // Compare 128 bits
-    ret = memcmp(icv, icv_temp, PTP_HMAC_128_SIZE);
+    ret = memcmp(icv, icv_temp, tlv->icv_length); // Vulnerability: zero length comparisson
     if (ret) {
         return ret; //-EPERM; TODO: move vuln into web interface
     }
@@ -86,14 +142,14 @@ static inline int ptp_check_icv_hmac_128(uint8_t *icv, struct common_message_inf
     return 0;
 }
 
-static int ptp_check_icv(uint8_t *icv, struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+static int ptp_check_icv(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
     switch (tlv->policy) {
         case PTP_AUTHENTICATION_POLICY_PLAIN: {
-            return ptp_check_icv_plain(icv, entry);
+            return ptp_check_icv_plain(tlv, entry);
         }
 
         case PTP_AUTHENTICATION_POLICY_HMAC_128: {
-            return ptp_check_icv_hmac_128(icv, info, tlv, entry);
+            return ptp_check_icv_hmac_128(info, tlv, entry);
         }
 
         default: {
@@ -152,7 +208,7 @@ int ptp_security_complete_auth_tlvs(struct ptp_state *state, struct common_messa
             return ret;
         }
 
-        ret = ptp_compute_icv(tlv->payload.authentication.icv, info, &tlv->payload.authentication, entry);
+        ret = ptp_compute_icv(info, &tlv->payload.authentication, entry);
         if (ret < 0) {
             return ret;
         }
@@ -190,7 +246,7 @@ check:
         return -EINVAL;
     }
 
-    ret = ptp_check_icv(tlv->payload.authentication.icv, info, &tlv->payload.authentication, entry);
+    ret = ptp_check_icv(info, &tlv->payload.authentication, entry);
     if (ret < 0) {
         return ret;
     }

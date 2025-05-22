@@ -7,7 +7,7 @@
 
 #define COMMON_RING_SIZE 8
 #define COMMON_MEMPOOL_SIZE 8
-#define COMMON_BUFFER_SIZE 1500
+#define COMMON_BUFFER_SIZE 1472
 
 enum common_port_type {
     COMMON_PORT_TYPE_EVENT = 0,
@@ -15,21 +15,20 @@ enum common_port_type {
 };
 
 struct common_message_info {
-    struct ptp_decoded_message message;
-
-    struct {
-        uint8_t data[COMMON_BUFFER_SIZE];
-        short length;
-    } buffer;
-
     struct {
         struct sockaddr_in address;
         socklen_t length;
     } address;
 
     enum common_port_type port_type;
-
     uint64_t timestamp;
+
+    struct {
+        uint8_t data[COMMON_BUFFER_SIZE];
+        short length;
+    } buffer;
+
+    struct ptp_decoded_message message;
 };
 
 struct common_transaction_info {
