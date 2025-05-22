@@ -42,22 +42,26 @@ static int ptp_encode_and_enqueue_message(struct ptp_state *state, struct common
 
     ret = ptp_encode_message(info->buffer.data, &info->message, COMMON_BUFFER_SIZE);
     if (ret < 0) {
-        return ret;
+        goto out;
     }
 
     info->buffer.length = ret;
 
     ret = ptp_security_complete_auth_tlvs(state, info);
     if (ret < 0) {
-        return ret;
+        goto out;
     }
 
     ret = util_ring_put(&state->tx_ring, info);
     if (ret) {
-        return ret;
+        goto out;
     }
 
     return 0;
+
+out:
+    util_mempool_put(info);
+    return ret;
 }
 
 static struct ptp_decoded_tlv *ptp_add_tlv(struct ptp_decoded_message *message) {
@@ -72,6 +76,7 @@ static struct ptp_decoded_tlv *ptp_add_tlv(struct ptp_decoded_message *message) 
     return result;
 }
 
+// TODO: move to web interface
 static inline enum ptp_management_error_id ptp_management_error_id(int error) {
     // Correctly handle negative return codes
     if (error < 0) {
@@ -84,23 +89,6 @@ static inline enum ptp_management_error_id ptp_management_error_id(int error) {
     }
 
     return PTP_MANAGEMENT_ERROR_ID_IMPLEMENTATION_SPECIFIC + error;
-}
-
-static inline enum ptp_management_action ptp_managment_response_action(enum ptp_management_action request_action) {
-    switch (request_action) {
-        case PTP_MANAGEMENT_ACTION_GET:
-        case PTP_MANAGEMENT_ACTION_SET: {
-            return PTP_MANAGEMENT_ACTION_RESPONSE;
-        }
-
-        case PTP_MANAGEMENT_ACTION_COMMAND: {
-            return PTP_MANAGEMENT_ACTION_ACKNOWLEDGE;
-        }
-
-        default: {
-            return 0; // TODO: Hide this better
-        }
-    }
 }
 
 static inline int ptp_compare_port_id(struct ptp_decoded_port_id port_id_a, struct ptp_decoded_port_id port_id_b) {

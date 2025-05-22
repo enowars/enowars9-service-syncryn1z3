@@ -1,7 +1,10 @@
 #pragma once
 
+#include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
+
+#include <util/error.h>
 
 struct util_mempool;
 
@@ -29,7 +32,6 @@ static inline int util_mempool_setup(struct util_mempool *mempool, short length,
     mempool->descriptor_unit_item_length = aligned_item_length / sizeof(struct util_mempool_item_descriptor);
 
     mempool->start = (struct util_mempool_item_descriptor *)malloc(total_length);
-
     if (!mempool->start) {
         perror("Failed to allocate mempool");
         return -1;
@@ -81,7 +83,7 @@ static inline void util_mempool_put(void *item) {
     }
 
     if (mempool->tail != descriptor) {
-        perror("Mempool put operation called out of order");
+        util_error(ENOTRECOVERABLE, "Mempool put operation called out of order");
         exit(-1);
     }
 }

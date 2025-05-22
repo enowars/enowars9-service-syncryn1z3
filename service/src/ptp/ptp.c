@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
@@ -7,6 +6,7 @@
 #include <ptp/protocol/ptp_protocol.h>
 #include <ptp/tasks/ptp_tasks.h>
 #include <common/common_types.h>
+#include <util/error.h>
 #include <util/time.h>
 #include <util/ring.h>
 #include <util/mempool.h>
@@ -79,7 +79,7 @@ int ptp_enqueue_message(void *user_ptr, struct common_message_info *info) {
 
     ret = ptp_handle_message(state);
     if (ret) {
-        perror("Failure in message handling");
+        util_error(ret, "Failure in message handling");
         return ret;
     }
 

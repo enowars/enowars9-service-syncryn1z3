@@ -31,3 +31,8 @@ struct common_message_info {
 
     uint64_t timestamp;
 };
+
+struct common_transaction_info {
+    struct common_message_info *request;
+    struct common_message_info *response;
+};

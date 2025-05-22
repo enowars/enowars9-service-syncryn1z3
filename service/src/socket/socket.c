@@ -11,6 +11,7 @@
 
 #include <socket/socket.h>
 #include <common/common_types.h>
+#include <util/error.h>
 #include <util/signal.h>
 
 static int send_message(struct socket_state *state) {
@@ -21,6 +22,10 @@ static int send_message(struct socket_state *state) {
 
     ret = state->config->dequeue_callback(state->config->user_ptr, &info);
     if (ret) {
+        if (-ret != ENODATA) {
+            util_error(ret, "Failed to dequeue message");
+        }
+
         return ret;
     }
 

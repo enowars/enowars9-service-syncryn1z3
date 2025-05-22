@@ -103,16 +103,28 @@ static int ptp_check_icv(uint8_t *icv, struct common_message_info *info, struct 
 }
 
 int ptp_security_add_auth_tlv(struct ptp_state *state, struct common_message_info *info) {
-    struct ptp_decoded_tlv *tlv = ptp_add_tlv(&info->message);
+    int ret;
 
+    struct ptp_port_entry *entry;
+    ret = ptp_port_db_get(&state->port_db, &entry, info->message.port_id);
+    if (ret) {
+        return ret;
+    }
+
+    // This would be a little too easy, huh?
+    if (entry->authentication_policy == PTP_AUTHENTICATION_POLICY_PLAIN) {
+        return 0;
+    }
+
+    struct ptp_decoded_tlv *tlv = ptp_add_tlv(&info->message);
     if (!tlv) {
-        return -ENOMEM;
+        return -EMSGSIZE;
     }
 
     tlv->type = PTP_TLV_TYPE_AUTHENTICATION;
-    tlv->payload.authentication.policy = PTP_AUTHENTICATION_POLICY_HMAC_128;
+    tlv->payload.authentication.policy = entry->authentication_policy;
     tlv->payload.authentication.parameter_indicator = 0; // No optional field supported
-    tlv->payload.authentication.key_id = info->message.port_id.port; // Reuse unique port
+    tlv->payload.authentication.key_id = 0;
     tlv->payload.authentication.icv_length = PTP_HMAC_128_SIZE; // Constant ICV length
 
     return 0;

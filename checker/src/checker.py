@@ -215,7 +215,7 @@ async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: in
     if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
         raise MumbleException("Expected management message in response")
     
-    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_ACKNOWLEDGE:
+    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_ACKNOWLEDGE and not expect_error:
         raise MumbleException("Expected management acknowledge action")
 
     received_description = None
@@ -263,7 +263,7 @@ async def get_user_description(connection: Connection, logger: LoggerAdapter, cl
     if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
         raise MumbleException("Expected management message in response")
     
-    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE:
+    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE and not expect_error:
         raise MumbleException("Expected management response action")
 
     received_description = None
@@ -302,7 +302,7 @@ async def get_time(connection: Connection, logger: LoggerAdapter, clock_id: int,
     if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
         raise MumbleException("Expected management message in response")
     
-    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE:
+    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE and not expect_error:
         raise MumbleException("Expected management response action")
 
     current_time = None
@@ -431,6 +431,18 @@ async def putnoise_user_description_twice(
     assert_equals(received_description, description, "Received wrong description")
 
 @checker.havoc(0)
+async def havoc_malformed_port_id(
+    task: HavocCheckerTaskMessage,
+    connection: Connection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id = 0xffffffffffffffff
+    port = 0xffff
+    secret = generate_secret(50)
+
+    await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", True)
+
+@checker.havoc(1)
 async def havoc_get_time(
     task: HavocCheckerTaskMessage,
     connection: Connection,
