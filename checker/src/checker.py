@@ -847,7 +847,7 @@ async def exploit_timing(
     
     sqrt_durations = [0]
 
-    for _ in range(50):
+    for _ in range(100):
         guess, sqrt_duration, received_flag = await guess_char(bytes(secret))
 
         if received_flag is not None:
