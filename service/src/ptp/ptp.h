@@ -11,6 +11,8 @@
 #include <util/ring.h>
 #include <util/mempool.h>
 
+#define PTP_MAX_RESPONSES 4
+
 struct ptp_config {
     uint16_t clock_priority;
     struct ptp_decoded_clock_quality clock_quality;
@@ -24,7 +26,10 @@ struct ptp_state {
     int event_fd;
 
     struct util_ring tx_ring;
-    struct util_ring rx_ring;
+
+    struct common_message_info *request;
+    struct common_message_info *reponses[PTP_MAX_RESPONSES]; // TODO: move into extra file
+    int num_responses;
 
     struct util_mempool mempool;
 

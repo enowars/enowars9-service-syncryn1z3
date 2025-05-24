@@ -17,10 +17,16 @@
 #include <util/mempool.h>
 
 static int ptp_get_and_init_message(struct ptp_state *state, struct common_message_info **info, enum common_port_type port_type, struct ptp_decoded_port_id port_id) {
+    if (state->num_responses >= PTP_MAX_RESPONSES) {
+        return -ENOMEM;
+    }
+
     *info = (struct common_message_info *)util_mempool_get(&state->mempool);
     if (!info) {
         return -ENOMEM;
     }
+
+    state->reponses[state->num_responses++] = *info;
 
     // Possible vuln if ommited
     memset(&(*info)->message, 0, sizeof((*info)->message));

@@ -14,7 +14,6 @@
 #include <ptp/tasks/ptp_tasks.h>
 #include <common/common_types.h>
 #include <util/time.h>
-#include <util/ring.h>
 #include <util/mempool.h>
 
 static int ptp_send_sync(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_port_id port_id) {
@@ -34,17 +33,8 @@ static int ptp_send_sync(struct ptp_state *state, struct common_message_info *re
     response->message.log_message_interval = 0;
 
     response->message.payload.event.timestamp = util_get_time_ns();
-
-    ret = ptp_encode_and_enqueue_message(state, response);
-    if (ret) {
-        goto out;
-    }
     
     return 0;
-
-out:
-    util_mempool_put(response);
-    return ret;
 }
 
 static int ptp_send_announce(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_port_id port_id) {
@@ -69,17 +59,8 @@ static int ptp_send_announce(struct ptp_state *state, struct common_message_info
     response->message.payload.announce.grandmaster_id = port_id.clock_id;
     response->message.payload.announce.steps_removed = 0;
     response->message.payload.announce.time_source = PTP_TIME_SOURCE_INTERNAL_OSCILLATOR;
-
-    ret = ptp_encode_and_enqueue_message(state, response);
-    if (ret) {
-        goto out;
-    }
     
     return 0;
-
-out:
-    util_mempool_put(response);
-    return ret;
 }
 
 static int ptp_management_error(struct ptp_state *state, struct common_transaction_info *transaction, enum ptp_management_error_id error_id, enum ptp_management_id id, const char *format, ...) {
@@ -349,7 +330,7 @@ int ptp_handle_message(struct ptp_state *state) {
     int ret;
     struct common_transaction_info transaction;
 
-    transaction.request = util_ring_get(&state->rx_ring);
+    transaction.request = state->request;
     if (!transaction.request) {
         return -ENODATA;
     }
@@ -397,11 +378,6 @@ err:
         if (ret) {
             goto out;
         }
-    }
-
-    ret = ptp_encode_and_enqueue_message(state, transaction.response);
-    if (ret) {
-        goto out;
     }
 
 out:
