@@ -1,0 +1,290 @@
+import asyncio
+import random
+import time
+import hmac
+import hashlib
+import argparse
+import socket
+
+import ptp_protocol
+import ptp_message
+
+
+LOCAL_PORT = 2000
+EVENT_PORT = 319
+GENERAL_PORT = 320
+
+"""
+Utility classes
+"""
+
+class PtpException(Exception):
+    pass
+
+class UdpClientProtocol(asyncio.DatagramProtocol):
+    def __init__(self, remote_address):
+        self.remote_address = remote_address
+
+        self.transport = None
+        self.queue = asyncio.Queue()
+
+        self.on_con_lost = asyncio.get_event_loop().create_future()
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def connection_lost(self, exc):
+        if not self.on_con_lost.done():
+            self.on_con_lost.set_result(True)
+
+    def datagram_received(self, data, address):
+        try:
+            self.queue.put_nowait(data)
+        except Exception as e:
+            raise PtpException(f"Transport exception: {e}")
+
+    def error_received(self, exc):
+        if not self.response.done():
+            self.response.set_exception(exc)
+
+class Connection:
+    BUFFER_SIZE = 1472
+
+    def __init__(self, remote_address, protocol):
+        self.remote_address = remote_address
+        self.protocol = protocol
+
+    def send_raw(self, request, port):
+        self.protocol.transport.sendto(request, (self.remote_address, port))
+        
+    async def receive_raw(self, port):
+        try:
+            return await asyncio.wait_for(self.protocol.queue.get(), 1.0)
+        except asyncio.TimeoutError:
+            raise PtpException("Timeout waiting for response")
+
+    def send(self, message, port):
+        request = message.encode(self.BUFFER_SIZE)
+        self.send_raw(request, port)
+
+    async def receive(self, port):
+        response = await self.receive_raw(port)
+        message = ptp_message.from_buffer(response)
+
+        return message
+
+"""
+Utility functions
+"""
+
+def get_time_ns(offset = 0):
+    return time.clock_gettime_ns(time.CLOCK_MONOTONIC) + offset
+
+def generate_port_id():
+    clock_id = random.randint(0x0200000000000001, 0x02ffffffffffffff)
+    port = random.randint(0x1, 0xfffe)
+
+    return clock_id, port
+
+def add_auth_tlv(message):
+    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION)
+    tlv.payload.authentication.policy = ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_HMAC_128
+    tlv.payload.authentication.parameter_indicator = 0
+    tlv.payload.authentication.key_id = 0
+    tlv.payload.authentication.icv_length = 16
+    
+def finalize_auth_tlv(tlv, request, secret=b""):
+    if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
+        return
+
+    buffer_address = ptp_protocol.ffi.cast("uint8_t *", ptp_protocol.ffi.addressof(ptp_protocol.ffi.from_buffer(request)))
+    icv_address = tlv.payload.authentication.icv
+    icv = hmac.new(secret, bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
+
+    ptp_protocol.ffi.memmove(icv_address, icv[:tlv.payload.authentication.icv_length], tlv.payload.authentication.icv_length)
+
+def finalize_auth_tlvs(request, secret=b""):
+    message = ptp_message.from_buffer(request)
+
+    for tlv in message.get_tlvs():
+        finalize_auth_tlv(tlv, request, secret)
+
+async def claim_port(connection: Connection, clock_id: int, port: int, secret: str, description: str):
+    secret = secret.encode("utf-8")
+    description = description.encode("utf-8")
+
+    if (len(secret) > 100):
+        raise PtpException("Secret too large")
+
+    if (len(description) > 128):
+        raise PtpException("User description too large")
+    
+    local_clock_id, local_port = generate_port_id()
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
+
+    payload = message.get_payload()
+    payload.management.target_port_id.clock_id = clock_id
+    payload.management.target_port_id.port = port
+    payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_COMMAND
+    payload.management.starting_boundary_hops = 0
+    payload.management.boundary_hops = 0
+
+    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+    tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM
+    tlv.payload.management.payload.port_claim.authentication_policy = ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_HMAC_128
+    ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.port_secret, secret + b'\0', len(secret) + 1)
+    ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.user_description, description + b'\0', len(description) + 1)
+
+    connection.send(message, GENERAL_PORT)
+    response = await connection.receive(GENERAL_PORT)
+
+    for tlv in response.get_tlvs():
+        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
+            raise PtpException(f"Received error from server: {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
+
+async def get_user_description(connection: Connection, clock_id: int, port: int, secret: str):
+    secret = secret.encode("utf-8")
+    secret = secret + b'\x00' * (100 - len(secret))
+
+    local_clock_id, local_port = generate_port_id()
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
+
+    payload = message.get_payload()
+    payload.management.target_port_id.clock_id = clock_id
+    payload.management.target_port_id.port = port
+    payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
+
+    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+    tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
+
+    add_auth_tlv(message)
+    request = message.encode(connection.BUFFER_SIZE)
+    finalize_auth_tlvs(request, secret=secret)
+
+    connection.send_raw(request, GENERAL_PORT)
+    response = await connection.receive(GENERAL_PORT)
+
+    for tlv in response.get_tlvs():
+        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
+            if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
+                return ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
+        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
+            raise PtpException(f"Received error from server: {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
+
+    raise PtpException("Received no description")
+
+async def request_unicast_message(connection: Connection, clock_id: int, port: int, secret: str, type: int):
+    secret = secret.encode("utf-8")
+    secret = secret + b'\x00' * (100 - len(secret))
+
+    local_clock_id, local_port = generate_port_id()
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_SIGNALING, local_clock_id, local_port, 0)
+
+    payload = message.get_payload()
+    payload.signaling.target_port_id.clock_id = clock_id
+    payload.signaling.target_port_id.port = port
+
+    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_REQUEST_UNICAST_TRANSMISSION)
+    tlv.payload.request_unicast.type = type
+    tlv.payload.request_unicast.log_message_interval = 0
+    tlv.payload.request_unicast.duration = 0
+
+    add_auth_tlv(message)
+    request = message.encode(connection.BUFFER_SIZE)
+    finalize_auth_tlvs(request, secret=secret)
+
+    connection.send_raw(request, GENERAL_PORT)
+    response = await connection.receive(GENERAL_PORT)
+
+    for tlv in response.get_tlvs():
+        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_GRANT_UNICAST_TRANSMISSION:
+            return
+        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
+            raise PtpException(f"Received error from server: {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
+
+    raise PtpException("Received no unicast transmission grant")
+
+async def run_synchronization(connection: Connection, clock_id: int, port: int, secret: str):
+    await request_unicast_message(connection, clock_id, port, secret, ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
+
+    sync = await connection.receive(EVENT_PORT)
+
+    if sync.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC:
+        raise PtpException("Expected sync message")
+    
+    t1 = sync.decoded.payload.event.timestamp
+    t2 = get_time_ns()
+
+    local_clock_id, local_port = generate_port_id()
+    delay_request = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_DELAY_REQUEST, local_clock_id, local_port, 0)
+
+    payload = delay_request.get_payload()
+    payload.event.timestamp = t2
+
+    t3 = get_time_ns()
+    connection.send(delay_request, EVENT_PORT)
+    delay_response = await connection.receive(EVENT_PORT)
+
+    if delay_response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_DELAY_RESPONSE:
+        raise PtpException("Expected delay response message")
+    
+    t4 = delay_response.decoded.payload.event.timestamp
+    
+    offset = 0
+    offset += int(((t1 + t4) - (t2 + t3)) / 2)
+    print("Time: {:.3f}, Offset: {:.3f}us".format(get_time_ns() / 1000000000, offset / 1000))
+
+def parse_args():
+    def auto_int(x):
+        return int(x, 0)
+
+    parser = argparse.ArgumentParser(description="syncryn1z3 ptp client")
+
+    parser.add_argument("address", type=str, help="IP address of the server")
+    parser.add_argument("clock_id", type=auto_int, help="Clock ID registered in the server")
+    parser.add_argument("port", type=auto_int, help="Port registered in the server")
+    parser.add_argument("--secret", type=str, default="", help="Password to secure the remote port")
+    parser.add_argument("--description", type=str, default="", help="Description of the remote port")
+    parser.add_argument("--syncs", type=int, default=0, help="Number of syncs to perform")
+    parser.add_argument("--interval", type=float, default=1, help="Interval in sec between syncs")
+    parser.add_argument("--claim", action="store_true", help="Claim the remote port and exit")
+
+    args = parser.parse_args()
+
+    if args.clock_id < 0x0200000000000001 or args.clock_id > 0x02ffffffffffffff:
+        raise PtpException("Clock ID out of range")
+    if args.port < 1 or args.port >= 0xffff:
+        raise PtpException("Port out of range")
+    
+    return args
+
+async def create_connections(args):
+    transport, protocol = await asyncio.get_running_loop().create_datagram_endpoint(lambda: UdpClientProtocol(args.address), local_addr=("0.0.0.0", LOCAL_PORT))
+
+    return Connection(args.address, protocol)
+
+async def main():
+    args = parse_args()
+
+    connection = await create_connections(args)
+
+    if args.claim:
+        await claim_port(connection, args.clock_id, args.port, args.secret, args.description)
+        print("Port claimed")
+        return
+    else:
+        description = await get_user_description(connection, args.clock_id, args.port, args.secret)
+        print(f"Connected to port: {description}")
+
+    for _ in range(args.syncs):
+        await run_synchronization(connection, args.clock_id, args.port, args.secret)
+        await asyncio.sleep(args.interval)
+
+    print("Exiting")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except PtpException as e:
+        print(e)
+        exit(1)
