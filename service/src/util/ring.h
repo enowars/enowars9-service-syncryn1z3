@@ -1,5 +1,6 @@
 #pragma once
 
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -19,7 +20,7 @@ static inline int util_ring_setup(struct util_ring *ring, int length) {
     
     if (!ring->buffer) {
         perror("Failed to allocate ring");
-        return -1;
+        return -ENOMEM;
     }
 
     ring->length = length;
@@ -59,7 +60,7 @@ static inline int util_ring_put(struct util_ring *ring, void* item) {
     int tail = atomic_load_explicit(&ring->tail, memory_order_acquire);
 
     if (next_head == tail) {
-        return -1;
+        return -ENOMEM;
     }
 
     ring->buffer[head] = item;

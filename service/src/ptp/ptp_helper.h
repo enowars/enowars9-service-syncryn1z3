@@ -16,49 +16,32 @@
 #include <util/ring.h>
 #include <util/mempool.h>
 
-static int ptp_get_and_init_message(struct ptp_state *state, struct common_message_info **info, enum common_port_type port_type, struct ptp_decoded_port_id port_id) {
-    if (state->num_responses >= PTP_MAX_RESPONSES) {
+static int ptp_get_and_init_response(struct ptp_state *state, struct common_transaction_info *transaction, enum common_port_type port_type, enum ptp_message_type type, struct ptp_decoded_port_id port_id, uint16_t sequence_id) {
+    int ret;
+    
+    transaction->response = (struct common_message_info *)util_mempool_get(&state->mempool);
+    if (!transaction->response) {
         return -ENOMEM;
     }
 
-    *info = (struct common_message_info *)util_mempool_get(&state->mempool);
-    if (!info) {
-        return -ENOMEM;
-    }
+    transaction->response->port_type = port_type;
+    transaction->response->buffer.length = 0;
 
-    state->reponses[state->num_responses++] = *info;
+    memcpy(&transaction->response->address, &transaction->request->address, sizeof(transaction->request->address));
+    transaction->response->address.length = sizeof(transaction->response->address.address);
 
     // Possible vuln if ommited
-    memset(&(*info)->message, 0, sizeof((*info)->message));
+    memset(&transaction->response->message, 0, sizeof(transaction->response->message));
 
-    (*info)->message.sdo_id = ptp_sdo_id;
-    (*info)->message.domain = ptp_domain;
-    (*info)->message.log_message_interval = 0x7f;
+    transaction->response->message.type = type;
+    transaction->response->message.sequence_id = sequence_id;
+    transaction->response->message.sdo_id = ptp_sdo_id;
+    transaction->response->message.domain = ptp_domain;
+    transaction->response->message.log_message_interval = 0x7f;
+    transaction->response->message.flags = PTP_FLAG_UNICAST;
+    memcpy(&transaction->response->message.port_id, &port_id, sizeof(port_id));
 
-    (*info)->message.port_id.clock_id = port_id.clock_id;
-    (*info)->message.port_id.port = port_id.port;
-
-    (*info)->port_type = port_type;
-
-    return 0;
-}
-
-static int ptp_encode_and_enqueue_message(struct ptp_state *state, struct common_message_info *info) {
-    int ret;
-
-    ret = ptp_encode_message(info->buffer.data, &info->message, COMMON_BUFFER_SIZE);
-    if (ret < 0) {
-        goto out;
-    }
-
-    info->buffer.length = ret;
-
-    ret = ptp_security_complete_auth_tlvs(state, info);
-    if (ret < 0) {
-        goto out;
-    }
-
-    ret = util_ring_put(&state->tx_ring, info);
+    ret = util_ring_put(&state->tx_ring, transaction->response);
     if (ret) {
         goto out;
     }
@@ -66,8 +49,26 @@ static int ptp_encode_and_enqueue_message(struct ptp_state *state, struct common
     return 0;
 
 out:
-    util_mempool_put(info);
+    util_mempool_put(transaction->response);
     return ret;
+}
+
+static int ptp_finalize_message(struct ptp_state *state, struct common_message_info *info) {
+    int ret;
+
+    ret = ptp_encode_message(info->buffer.data, &info->message, COMMON_BUFFER_SIZE);
+    if (ret < 0) {
+        return ret;
+    }
+
+    info->buffer.length = ret;
+
+    ret = ptp_security_complete_auth_tlvs(state, info);
+    if (ret < 0) {
+        return ret;
+    }
+
+    return 0;
 }
 
 static struct ptp_decoded_tlv *ptp_add_tlv(struct ptp_decoded_message *message) {

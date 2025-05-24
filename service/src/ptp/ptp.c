@@ -18,6 +18,11 @@ int ptp_setup(struct ptp_state *state, struct ptp_config *config) {
     memset(state, 0, sizeof(*state));
     state->config = config;
 
+    ret = util_ring_setup(&state->rx_ring, COMMON_RING_SIZE);
+    if (ret) {
+        return ret;
+    }
+
     ret = util_ring_setup(&state->tx_ring, COMMON_RING_SIZE);
     if (ret) {
         return ret;
@@ -38,6 +43,11 @@ int ptp_setup(struct ptp_state *state, struct ptp_config *config) {
     
 int ptp_cleanup(struct ptp_state *state) {
     int ret;
+
+    ret = util_ring_cleanup(&state->rx_ring);
+    if (ret) {
+        return ret;
+    }
 
     ret = util_ring_cleanup(&state->tx_ring);
     if (ret) {
@@ -61,22 +71,17 @@ int ptp_enqueue_message(void *user_ptr, struct common_message_info *info) {
     int ret;
     struct ptp_state *state = (struct ptp_state *)user_ptr;
 
-    state->num_responses = 0;
-
-    state->request = info;
     info->timestamp = util_get_time_ns();
+
+    ret = util_ring_put(&state->rx_ring, info);
+    if (ret) {
+        return ret;
+    }
 
     ret = ptp_handle_message(state);
     if (ret) {
         util_error(ret, "Failure in message handling");
         return ret;
-    }
-
-    for (int i = 0; i < state->num_responses; ++i) {
-        ret = ptp_encode_and_enqueue_message(state, state->reponses[i]);
-        if (ret) {
-            util_error(ret, "Failed to encode message");
-        }
     }
 
     return 0;

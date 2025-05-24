@@ -18,57 +18,55 @@
 
 static int ptp_send_sync(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_port_id port_id) {
     int ret;
-    
-    struct common_message_info *response;
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT, port_id);
+    struct common_transaction_info transaction;
+
+    transaction.request = request;
+
+    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_EVENT, PTP_MESSAGE_TYPE_SYNC, port_id, transaction.request->message.sequence_id);
     if (ret) {
         return ret;
     }
 
-    memcpy(&response->address.address, &request->address.address, sizeof(response->address.address));
-    response->address.length = sizeof(response->address.address);
+    transaction.response->message.flags &= ~PTP_FLAG_TWO_STEP;
+    transaction.response->message.payload.event.timestamp = util_get_time_ns();
 
-    response->message.type = PTP_MESSAGE_TYPE_SYNC;
-    response->message.sequence_id = request->message.sequence_id;
-    response->message.log_message_interval = 0;
-
-    response->message.payload.event.timestamp = util_get_time_ns();
+    ret = ptp_finalize_message(state, transaction.response);
+    if (ret) {
+        util_error(ret, "Failed to finalize sync message");
+    }
     
-    return 0;
+    return ret;
 }
 
 static int ptp_send_announce(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_port_id port_id) {
     int ret;
+    struct common_transaction_info transaction;
 
-    struct common_message_info *response;
-    ret = ptp_get_and_init_message(state, &response, COMMON_PORT_TYPE_EVENT, port_id);
+    transaction.request = request;
+
+    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_GENERAL, PTP_MESSAGE_TYPE_ANNOUNCE, port_id, transaction.request->message.sequence_id);
     if (ret) {
         return ret;
     }
 
-    memcpy(&response->address.address, &request->address.address, sizeof(response->address.address));
-    response->address.length = sizeof(response->address.address);
+    transaction.response->message.payload.announce.timestamp = util_get_time_ns();
+    transaction.response->message.payload.announce.grandmaster_priority = state->config->clock_priority;
+    memcpy(&transaction.response->message.payload.announce.grandmaster_clock_quality, &state->config->clock_quality, sizeof(state->config->clock_quality));
+    transaction.response->message.payload.announce.grandmaster_id = port_id.clock_id;
+    transaction.response->message.payload.announce.steps_removed = 0;
+    transaction.response->message.payload.announce.time_source = PTP_TIME_SOURCE_INTERNAL_OSCILLATOR;
 
-    response->message.type = PTP_MESSAGE_TYPE_ANNOUNCE;
-    response->message.sequence_id = request->message.sequence_id;
-    response->message.log_message_interval = 0;
-
-    response->message.payload.announce.timestamp = util_get_time_ns();
-    response->message.payload.announce.grandmaster_priority = state->config->clock_priority;
-    memcpy(&response->message.payload.announce.grandmaster_clock_quality, &state->config->clock_quality, sizeof(state->config->clock_quality));
-    response->message.payload.announce.grandmaster_id = port_id.clock_id;
-    response->message.payload.announce.steps_removed = 0;
-    response->message.payload.announce.time_source = PTP_TIME_SOURCE_INTERNAL_OSCILLATOR;
+    ret = ptp_finalize_message(state, transaction.response);
+    if (ret) {
+        util_error(ret, "Failed to finalize announce message");
+    }
     
-    return 0;
+    return ret;
 }
 
-static int ptp_management_error(struct ptp_state *state, struct common_transaction_info *transaction, enum ptp_management_error_id error_id, enum ptp_management_id id, const char *format, ...) {
+static int ptp_add_management_error_tlv_va(struct ptp_state *state, struct common_transaction_info *transaction, enum ptp_management_error_id error_id, enum ptp_management_id id, const char *format, va_list va_args) {
     int ret;
-    va_list va_args;
     struct ptp_decoded_tlv *tlv;
-
-    va_start(va_args, format);
 
     transaction->response->message.type = PTP_MESSAGE_TYPE_MANAGEMENT;
 
@@ -89,6 +87,51 @@ static int ptp_management_error(struct ptp_state *state, struct common_transacti
     return 0;
 }
 
+static inline int ptp_add_management_error_tlv(struct ptp_state *state, struct common_transaction_info *transaction, enum ptp_management_error_id error_id, enum ptp_management_id id, const char *format, ...) {
+    va_list va_args;
+    va_start(va_args, format);
+
+    return ptp_add_management_error_tlv_va(state, transaction, error_id, id, format, va_args); 
+}
+
+static int ptp_add_management_error_message_va(struct ptp_state *state, struct common_message_info *request, enum ptp_management_error_id error_id, enum ptp_management_id id, const char *format, va_list va_args) {
+    int ret;
+    struct common_transaction_info transaction;
+
+    transaction.request = request;
+
+    if (transaction.request->port_type != COMMON_PORT_TYPE_GENERAL) {
+        return -EINVAL;
+    }
+
+    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_GENERAL, PTP_MESSAGE_TYPE_MANAGEMENT, ptp_default_port_id, transaction.request->message.sequence_id);
+    if (ret) {
+        return ret;
+    }
+
+    memset(&transaction.response->message.payload.management, 0, sizeof(transaction.response->message.payload.management));
+    memcpy(&transaction.response->message.payload.management.target_port_id, &transaction.request->message.port_id, sizeof(transaction.request->message.port_id));
+    
+    ret = ptp_add_management_error_tlv_va(state, &transaction, error_id, id, format, va_args);
+    if (ret) {
+        return ret;
+    }
+
+    ret = ptp_finalize_message(state, transaction.response);
+    if (ret) {
+        util_error(ret, "Failed to finalize error message");
+    }
+    
+    return ret;
+}
+
+static inline int ptp_add_management_error_message(struct ptp_state *state, struct common_message_info *request, enum ptp_management_error_id error_id, enum ptp_management_id id, const char *format, ...) {
+    va_list va_args;
+    va_start(va_args, format);
+
+    return ptp_add_management_error_message_va(state, request, error_id, id, format, va_args); 
+}
+
 static int ptp_handle_management_user_description_get(struct ptp_state *state, struct common_transaction_info *transaction, struct ptp_decoded_tlv *request_tlv) {
     int ret;
     struct ptp_port_entry *entry;
@@ -97,12 +140,12 @@ static int ptp_handle_management_user_description_get(struct ptp_state *state, s
 
     ret = ptp_port_db_get(&state->port_db, &entry, transaction->request->message.payload.management.target_port_id);
     if (ret) {
-        return ptp_management_error(state, transaction, PTP_MANAGEMENT_ERROR_ID_UNPOPULATED, PTP_MANAGEMENT_ID_USER_DESCRIPTION, "No such port");
+        return ptp_add_management_error_tlv(state, transaction, PTP_MANAGEMENT_ERROR_ID_UNPOPULATED, PTP_MANAGEMENT_ID_USER_DESCRIPTION, "No such port");
     }
 
     ret = ptp_security_check_auth(state, transaction->request, request_tlv, transaction->request->message.payload.management.target_port_id);
     if (ret) {
-        return ptp_management_error(state, transaction, ptp_management_error_id(ret), PTP_MANAGEMENT_ID_NULL, "Access denied");
+        return ptp_add_management_error_tlv(state, transaction, ptp_management_error_id(ret), PTP_MANAGEMENT_ID_NULL, "Access denied");
     }
 
     transaction->response->message.payload.management.action = PTP_MANAGEMENT_ACTION_RESPONSE;
@@ -152,7 +195,7 @@ static int ptp_handle_management_port_claim(struct ptp_state *state, struct comm
 
     ret = ptp_port_db_set(&state->port_db, &entry);
     if (ret) {
-        return ptp_management_error(state, transaction, PTP_MANAGEMENT_ERROR_ID_NOT_SETABLE, PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM, "Port already claimed");
+        return ptp_add_management_error_tlv(state, transaction, PTP_MANAGEMENT_ERROR_ID_NOT_SETABLE, PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM, "Port already claimed");
     }
 
     transaction->response->message.payload.management.action = PTP_MANAGEMENT_ACTION_ACKNOWLEDGE;
@@ -229,140 +272,171 @@ static int ptp_handle_tlv_management(struct ptp_state *state, struct common_tran
         }
 
         default: {
-            return ptp_management_error(state, transaction, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->payload.management.id, "Management ID not supported");
+            return ptp_add_management_error_tlv(state, transaction, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->payload.management.id, "Management ID not supported");
         }
     }
 
-    return ptp_management_error(state, transaction, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->payload.management.id, "Unsupported action");
+    return ptp_add_management_error_tlv(state, transaction, PTP_MANAGEMENT_ERROR_ID_NOT_SUPPORTED, tlv->payload.management.id, "Unsupported action");
 }
 
-static int ptp_handle_message_delay_request(struct ptp_state *state, struct common_transaction_info *transaction) {
-    if (transaction->request->port_type != COMMON_PORT_TYPE_EVENT) {
-        return -EINVAL;
-    }
-
-    transaction->response->message.type = PTP_MESSAGE_TYPE_DELAY_RESPONSE;
-    memcpy(&transaction->response->message.port_id, &transaction->request->message.payload.event.port_id, sizeof(transaction->request->message.payload.event.port_id));
-
-    transaction->response->message.payload.event.timestamp = transaction->request->timestamp;
-    memcpy(&transaction->response->message.payload.event.port_id, &transaction->request->message.port_id, sizeof(transaction->request->message.port_id));    
-
-    return 0;
-}
-
-static int ptp_handle_message_signaling(struct ptp_state *state, struct common_transaction_info *transaction) {
-    int ret;
-
-    if (transaction->request->port_type != COMMON_PORT_TYPE_GENERAL) {
-        return -EINVAL;
-    }
-
-    transaction->response->message.type = PTP_MESSAGE_TYPE_SIGNALING;
-    memcpy(&transaction->response->message.port_id, &transaction->request->message.payload.signaling.target_port_id, sizeof(transaction->request->message.payload.signaling.target_port_id));
-
-    memcpy(&transaction->response->message.payload.signaling.target_port_id, &transaction->request->message.port_id, sizeof(transaction->request->message.port_id));    
-
-    // Handle supported TLVs
-    for (int i = 0; i < transaction->request->message.tlv_count; ++i) {
-        struct ptp_decoded_tlv *tlv = &transaction->request->message.tlvs[i];
-
-        switch (tlv->type) {
-            case PTP_TLV_TYPE_REQUEST_UNICAST_TRANSMISSION: {
-                ret = ptp_handle_tlv_request_unicast(state, transaction, tlv);
-                if (ret) {
-                    return ret;
-                }
-
-                break;
-            }
-
-            default: {
-                continue;
-            }
-        }
-    }
-
-    return 0;
-} 
-
-static int ptp_handle_message_management(struct ptp_state *state, struct common_transaction_info *transaction) {
-    int ret;
-
-    if (transaction->request->port_type != COMMON_PORT_TYPE_GENERAL) {
-        return ptp_management_error(state, transaction, PTP_MANAGEMENT_ERROR_ID_WRONG_VALUE, PTP_MANAGEMENT_ID_NULL, "Management message received on wrong port");
-    }
-
-    transaction->response->message.type = PTP_MESSAGE_TYPE_MANAGEMENT;
-    memcpy(&transaction->response->message.port_id, &transaction->request->message.payload.management.target_port_id, sizeof(transaction->request->message.payload.management.target_port_id));
-
-    memset(&transaction->response->message.payload.management, 0, sizeof(transaction->response->message.payload.management));
-    memcpy(&transaction->response->message.payload.management.target_port_id, &transaction->request->message.port_id, sizeof(transaction->request->message.port_id));
-
-    // Handle supported TLVs
-    for (int i = 0; i < transaction->request->message.tlv_count; ++i) {
-        struct ptp_decoded_tlv *tlv = &transaction->request->message.tlvs[i];
-
-        switch (tlv->type) {
-            case PTP_TLV_TYPE_MANAGEMENT: {
-                ret = ptp_handle_tlv_management(state, transaction, tlv);
-                if (ret) {
-                    return ret;
-                }
-
-                break;
-            }
-
-            default: {
-                continue;
-            }
-        }
-    }
-
-    ret = ptp_security_add_auth_tlv(state, transaction->response);
-    if (ret) {
-        return ret;
-    }
-
-    return 0;
-} 
-
-int ptp_handle_message(struct ptp_state *state) {   
+static int ptp_handle_message_delay_request(struct ptp_state *state, struct common_message_info *request) {
     int ret;
     struct common_transaction_info transaction;
 
-    transaction.request = state->request;
-    if (!transaction.request) {
-        return -ENODATA;
+    transaction.request = request;
+
+    if (transaction.request->port_type != COMMON_PORT_TYPE_EVENT) {
+        return -EINVAL;
     }
 
-    ret = ptp_get_and_init_message(state, &transaction.response, COMMON_PORT_TYPE_GENERAL, ptp_default_port_id);
+    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_GENERAL, PTP_MESSAGE_TYPE_DELAY_RESPONSE, transaction.request->message.payload.event.port_id, transaction.request->message.sequence_id);
     if (ret) {
         return ret;
     }
-    
-    ret = ptp_decode_message(&transaction.request->message, transaction.request->buffer.data, transaction.request->buffer.length);
+
+    transaction.response->message.payload.event.timestamp = transaction.request->timestamp;
+    memcpy(&transaction.response->message.payload.event.port_id, &transaction.request->message.port_id, sizeof(transaction.request->message.port_id));
+
+    ret = ptp_finalize_message(state, transaction.response);
     if (ret) {
-        goto err;
+        util_error(ret, "Failed to finalize delay response message");
     }
 
-    memcpy(&transaction.response->address, &transaction.request->address, sizeof(transaction.request->address));
-    
-    transaction.response->message.sequence_id = transaction.request->message.sequence_id;
-    transaction.response->message.flags = PTP_FLAG_UNICAST;
+    return ret;
+}
 
-    switch (transaction.request->message.type) {
+static int ptp_handle_message_signaling(struct ptp_state *state, struct common_message_info *request) {
+    int ret;
+    struct common_transaction_info transaction;
+
+    transaction.request = request;
+
+    if (transaction.request->port_type != COMMON_PORT_TYPE_GENERAL) {
+        return -EINVAL;
+    }
+
+    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_GENERAL, PTP_MESSAGE_TYPE_SIGNALING, transaction.request->message.payload.signaling.target_port_id, transaction.request->message.sequence_id);
+    if (ret) {
+        return ret;
+    }
+
+    transaction.response->message.payload.event.timestamp = transaction.request->timestamp;
+    memcpy(&transaction.response->message.payload.signaling.target_port_id, &transaction.request->message.port_id, sizeof(transaction.request->message.port_id));
+
+    // Handle supported TLVs
+    for (int i = 0; i < transaction.request->message.tlv_count; ++i) {
+        struct ptp_decoded_tlv *tlv = &transaction.request->message.tlvs[i];
+
+        switch (tlv->type) {
+            case PTP_TLV_TYPE_REQUEST_UNICAST_TRANSMISSION: {
+                ret = ptp_handle_tlv_request_unicast(state, &transaction, tlv);
+                if (ret) {
+                    return ret;
+                }
+
+                break;
+            }
+
+            default: {
+                continue;
+            }
+        }
+    }
+
+    ret = ptp_finalize_message(state, transaction.response);
+    if (ret) {
+        util_error(ret, "Failed to finalize delay response message");
+    }
+
+    return ret;
+} 
+
+static int ptp_handle_message_management(struct ptp_state *state, struct common_message_info *request) {
+    int ret;
+    struct common_transaction_info transaction;
+
+    transaction.request = request;
+
+    if (transaction.request->port_type != COMMON_PORT_TYPE_GENERAL) {
+        return -EINVAL;
+    }
+
+    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_GENERAL, PTP_MESSAGE_TYPE_MANAGEMENT, transaction.request->message.payload.management.target_port_id, transaction.request->message.sequence_id);
+    if (ret) {
+        return ret;
+    }
+
+    memset(&transaction.response->message.payload.management, 0, sizeof(transaction.response->message.payload.management));
+    memcpy(&transaction.response->message.payload.management.target_port_id, &transaction.request->message.port_id, sizeof(transaction.request->message.port_id));
+
+    // Handle supported TLVs
+    for (int i = 0; i < transaction.request->message.tlv_count; ++i) {
+        struct ptp_decoded_tlv *tlv = &transaction.request->message.tlvs[i];
+
+        switch (tlv->type) {
+            case PTP_TLV_TYPE_MANAGEMENT: {
+                ret = ptp_handle_tlv_management(state, &transaction, tlv);
+                if (ret) {
+                    goto out;
+                }
+
+                break;
+            }
+
+            default: {
+                continue;
+            }
+        }
+    }
+
+    ret = ptp_security_add_auth_tlv(state, transaction.response);
+    if (ret) {
+        goto out;
+    }
+
+out:
+    ret = ptp_finalize_message(state, transaction.response);
+    if (ret) {
+        util_error(ret, "Failed to finalize management message");
+    }
+
+    return 0;
+}
+
+int ptp_handle_message(struct ptp_state *state) {   
+    int ret;
+    struct common_message_info *request;
+
+    request = util_ring_get(&state->rx_ring);
+    if (!request) {
+        return -ENODATA;
+    }
+    
+    ret = ptp_decode_message(&request->message, request->buffer.data, request->buffer.length);
+    if (ret) {
+        goto out;
+    }
+
+    switch (request->message.type) {
+        case PTP_MESSAGE_TYPE_SYNC:
+        case PTP_MESSAGE_TYPE_DELAY_RESPONSE:
+        case PTP_MESSAGE_TYPE_ANNOUNCE: {
+            // Ignore
+            break;
+        }
+
         case PTP_MESSAGE_TYPE_DELAY_REQUEST: {
-            ret = ptp_handle_message_delay_request(state, &transaction);
+            ret = ptp_handle_message_delay_request(state, request);
             break;
         }
 
         case PTP_MESSAGE_TYPE_SIGNALING: {
-            ret = ptp_handle_message_signaling(state, &transaction);
+            ret = ptp_handle_message_signaling(state, request);
             break;
         }
     
         case PTP_MESSAGE_TYPE_MANAGEMENT: {
-            ret = ptp_handle_message_management(state, &transaction);
+            ret = ptp_handle_message_management(state, request);
             break;
         }
 
@@ -372,15 +446,11 @@ int ptp_handle_message(struct ptp_state *state) {
         }
     }
 
-err:
+out:
     if (ret) {
-        ret = ptp_management_error(state, &transaction, PTP_MANAGEMENT_ERROR_ID_GENERAL, PTP_MANAGEMENT_ID_NULL, "General error");
-        if (ret) {
-            goto out;
-        }
+        ret = ptp_add_management_error_message(state, request, PTP_MANAGEMENT_ERROR_ID_GENERAL, PTP_MANAGEMENT_ID_NULL, "General error");
     }
 
-out:
-    util_mempool_put(transaction.request);
+    util_mempool_put(request);
     return ret;
 }

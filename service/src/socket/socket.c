@@ -34,6 +34,11 @@ static int send_message(struct socket_state *state) {
         goto out;
     }
 
+    if (info->buffer.length <= 0) {
+        ret = -EINVAL;
+        goto out;
+    }
+
     instance = &state->instances[info->port_type];
 
     ret = sendto(instance->fd, info->buffer.data, info->buffer.length, 0, (const struct sockaddr *)&info->address.address, info->address.length);
