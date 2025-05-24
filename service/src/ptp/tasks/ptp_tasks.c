@@ -213,8 +213,14 @@ static int ptp_handle_management_port_claim(struct ptp_state *state, struct comm
 }
 
 static int ptp_handle_tlv_request_unicast(struct ptp_state *state, struct common_transaction_info *transaction, struct ptp_decoded_tlv *request_tlv) {
+    int ret;
     struct ptp_decoded_tlv *tlv;
     int (*send_function)(struct ptp_state *, struct common_message_info *, struct ptp_decoded_port_id);
+
+    ret = ptp_security_check_auth(state, transaction->request, request_tlv, transaction->request->message.payload.management.target_port_id);
+    if (ret) {
+        return ptp_add_management_error_message(state, transaction->request, ptp_management_error_id(ret), PTP_MANAGEMENT_ID_NULL, "Access denied");
+    }
 
     switch (request_tlv->payload.request_unicast.type) {
         case PTP_MESSAGE_TYPE_SYNC: {

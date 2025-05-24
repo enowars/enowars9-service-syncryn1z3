@@ -6,7 +6,6 @@ import random
 import string
 import faker
 import secrets
-import string
 import hmac
 import hashlib
 import struct
@@ -52,11 +51,12 @@ app = lambda: checker.app
 Dependencies
 """
 
-class UdpClientProtocol(asyncio.DatagramProtocol):
-    def __init__(self, remote_address):
-        self.remote_address = remote_address
 
+class UdpClientProtocol(asyncio.DatagramProtocol):
+    def __init__(self):
         self.transport = None
+        self.queue = asyncio.Queue()
+
         self.on_con_lost = asyncio.get_event_loop().create_future()
 
     def connection_made(self, transport):
@@ -66,50 +66,41 @@ class UdpClientProtocol(asyncio.DatagramProtocol):
         if not self.on_con_lost.done():
             self.on_con_lost.set_result(True)
 
-    def datagram_received(self, data, addr):
-        if not self.response.done():
-            self.response.set_result(data)
-
-    def error_received(self, exc):
-        if not self.response.done():
-            self.response.set_exception(exc)
-
-    def get_response_future(self):
-        self.response = asyncio.get_event_loop().create_future()
-        return self.response
+    def datagram_received(self, data, address):
+        self.queue.put_nowait(data)
 
 class Connection:
     BUFFER_SIZE = 1472
 
-    def __init__(self, protocol: UdpClientProtocol, logger: LoggerAdapter):
+    def __init__(self, remote_address, protocol: UdpClientProtocol, logger: LoggerAdapter):
+        self.remote_address = remote_address
         self.protocol = protocol
         self.logger = logger
 
-    def send_raw(self, request):
-        self.protocol.get_response_future()
-        self.protocol.transport.sendto(request, (self.protocol.remote_address, GENERAL_PORT))
-
-    async def receive_raw(self):
+    def send_raw(self, request, port):
+        self.protocol.transport.sendto(request, (self.remote_address, port))
+        
+    async def receive_raw(self, port):
         try:
-            return await asyncio.wait_for(self.protocol.response, timeout=100.0)
+            return await asyncio.wait_for(self.protocol.queue.get(), 1.0)
         except asyncio.TimeoutError:
             raise OfflineException("Timeout waiting for response")
 
-    def send(self, message):
+    def send(self, message, port):
         request = message.encode(self.BUFFER_SIZE)
-        self.send_raw(request)
+        self.send_raw(request, port)
 
-    async def receive(self):
-        response = await self.receive_raw()
+    async def receive(self, port):
+        response = await self.receive_raw(port)
         message = ptp_message.from_buffer(response)
 
         return message
 
 @checker.register_dependency
 @contextlib.asynccontextmanager
-async def _get_async_udp_protocol(task: BaseCheckerTaskMessage, logger: LoggerAdapter) -> typing.AsyncIterator[UdpClientProtocol]:
+async def _get_async_udp_protocol(logger: LoggerAdapter) -> typing.AsyncIterator[UdpClientProtocol]:
     try:
-        transport, protocol = await asyncio.get_running_loop().create_datagram_endpoint(lambda: UdpClientProtocol(task.address), local_addr=("0.0.0.0", 0))
+        transport, protocol = await asyncio.get_running_loop().create_datagram_endpoint(lambda: UdpClientProtocol(), local_addr=("0.0.0.0", 0))
     except Exception as e:
         logger.info(f"Failed to create UDP endpoint {e}")
         raise InternalErrorException("Could not create UDP socket")
@@ -121,8 +112,8 @@ async def _get_async_udp_protocol(task: BaseCheckerTaskMessage, logger: LoggerAd
         await protocol.on_con_lost
 
 @checker.register_dependency
-def _get_connection(protocol: typing.AsyncIterator[UdpClientProtocol], logger: LoggerAdapter) -> Connection:
-    return Connection(protocol, logger)
+def _get_connection(task: BaseCheckerTaskMessage, protocol: typing.AsyncIterator[UdpClientProtocol], logger: LoggerAdapter) -> Connection:
+    return Connection(task.address, protocol, logger)
 
 
 """
@@ -137,6 +128,9 @@ def generate_port_id():
 
 def generate_secret(length: int):
     return (''.join(secrets.choice(string.printable) for _ in range(length)))
+
+def generate_timestamp():
+    return random.randint(0x0, 0xffffffffffffffff)
 
 def encode_port_id(clock_id: int, port: int):
     return hex(clock_id) + ":" + hex(port)
@@ -178,7 +172,7 @@ def finalize_auth_tlv(tlv, request, secret=b"", icv=None):
     
     if tlv.payload.authentication.policy == policy_to_int("hmac"):
         if icv is None:
-            icv = hmac.new(secret, bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
+            icv = hmac.new(secret + b'\x00' * (100 - len(secret)), bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
     elif tlv.payload.authentication.policy == policy_to_int("plain"):
         icv = secret + b'\0'
     else:
@@ -215,8 +209,8 @@ async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: in
     ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.port_secret, secret + b'\0', len(secret) + 1)
     ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.user_description, description + b'\0', len(description) + 1)
 
-    connection.send(message)
-    response = await connection.receive()
+    connection.send(message, GENERAL_PORT)
+    response = await connection.receive(GENERAL_PORT)
 
     if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
         raise MumbleException("Expected management message in response")
@@ -246,8 +240,6 @@ async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: in
         raise MumbleException("Expected management error in PORT_CLAIM response")
 
 async def get_user_description(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, expect_error=False):
-    secret = secret + b'\x00' * (100 - len(secret))
-
     local_clock_id, local_port = generate_port_id()
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
 
@@ -263,8 +255,8 @@ async def get_user_description(connection: Connection, logger: LoggerAdapter, cl
     request = message.encode(connection.BUFFER_SIZE)
     finalize_auth_tlvs(request, secret=secret)
 
-    connection.send_raw(request)
-    response = await connection.receive()
+    connection.send_raw(request, GENERAL_PORT)
+    response = await connection.receive(GENERAL_PORT)
 
     if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
         raise MumbleException("Expected management message in response")
@@ -302,8 +294,8 @@ async def get_time(connection: Connection, logger: LoggerAdapter, clock_id: int,
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
     tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_TIME
 
-    connection.send(message)
-    response = await connection.receive()
+    connection.send(message, GENERAL_PORT)
+    response = await connection.receive(GENERAL_PORT)
 
     if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
         raise MumbleException("Expected management message in response")
@@ -331,6 +323,61 @@ async def get_time(connection: Connection, logger: LoggerAdapter, clock_id: int,
         raise MumbleException("Expected management error in USER_DESCRIPTION response")
     
     return current_time
+
+async def request_unicast_message(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, type: int):
+    local_clock_id, local_port = generate_port_id()
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_SIGNALING, local_clock_id, local_port, 0)
+
+    payload = message.get_payload()
+    payload.signaling.target_port_id.clock_id = clock_id
+    payload.signaling.target_port_id.port = port
+
+    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_REQUEST_UNICAST_TRANSMISSION)
+    tlv.payload.request_unicast.type = type
+    tlv.payload.request_unicast.log_message_interval = 0
+    tlv.payload.request_unicast.duration = 0
+
+    add_auth_tlv(message, policy)
+    request = message.encode(connection.BUFFER_SIZE)
+    finalize_auth_tlvs(request, secret=secret)
+
+    connection.send_raw(request, EVENT_PORT)
+    response = await connection.receive(EVENT_PORT)
+
+    for tlv in response.get_tlvs():
+        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_GRANT_UNICAST_TRANSMISSION:
+            return
+        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
+            raise MumbleException(f"Received error from server: {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
+
+    raise MumbleException("Received no unicast transmission grant")
+
+async def run_synchronization(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str):
+    await request_unicast_message(connection, logger, clock_id, port, secret, policy, ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
+
+    sync = await connection.receive(EVENT_PORT)
+
+    if sync.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC:
+        raise MumbleException("Expected sync message")
+    
+    t1 = sync.decoded.payload.event.timestamp
+
+    local_clock_id, local_port = generate_port_id()
+    delay_request = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_DELAY_REQUEST, local_clock_id, local_port, 0)
+
+    payload = delay_request.get_payload()
+    payload.event.timestamp = generate_timestamp()
+
+    connection.send(delay_request, EVENT_PORT)
+    delay_response = await connection.receive(EVENT_PORT)
+
+    if delay_response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_DELAY_RESPONSE:
+        raise MumbleException("Expected delay response message")
+    
+    t4 = delay_response.decoded.payload.event.timestamp
+
+    if (t1 >= t4):
+        raise MumbleException("Timejump during synchronization process")
 
 """
 CHECKER FUNCTIONS
@@ -404,6 +451,20 @@ async def getflag_user_description_plain(
     assert_equals(received_description, task.flag, "Received wrong flag")
 
 @checker.putnoise(0)
+async def putnoise_sync(
+    task: PutnoiseCheckerTaskMessage,
+    db: ChainDB,
+    connection: Connection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id, port = generate_port_id()
+    secret = generate_secret(50)
+
+    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", bytes())
+
+    await db.set("userdata", (clock_id, port, secret))
+
+@checker.putnoise(1)
 async def putnoise_user_description_twice(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
@@ -420,9 +481,23 @@ async def putnoise_user_description_twice(
     assert_equals(error, "Port already claimed", "Wrong error message")
 
     await db.set("userdata", (clock_id, port, secret, description))
-    
+
 @checker.getnoise(0)
-async def putnoise_user_description_twice(
+async def getnoise_sync(
+    task: GetnoiseCheckerTaskMessage,
+    db: ChainDB,
+    connection: Connection,
+    logger: LoggerAdapter,    
+) -> None:
+    try:
+        clock_id, port, secret = await db.get("userdata")
+    except KeyError:
+        raise MumbleException("Missing database entry from putflag")
+
+    await run_synchronization(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
+    
+@checker.getnoise(1)
+async def getnoise_user_description_twice(
     task: GetnoiseCheckerTaskMessage,
     db: ChainDB,
     connection: Connection,
@@ -450,6 +525,24 @@ async def havoc_malformed_port_id(
 
 @checker.havoc(1)
 async def havoc_get_time(
+    task: HavocCheckerTaskMessage,
+    connection: Connection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id, port = generate_port_id()
+
+    last_time = 0
+
+    for _ in range(3):
+        current_time = await get_time(connection, logger, clock_id, port)
+
+        if current_time <= last_time:
+            raise MumbleException("Timejump detected")
+        
+        last_time = current_time
+
+@checker.havoc(2)
+async def havoc_sync(
     task: HavocCheckerTaskMessage,
     connection: Connection,
     logger: LoggerAdapter,    
@@ -499,8 +592,8 @@ async def exploit_memcmp(
         async def guess_byte(icv):
             finalize_auth_tlvs(request, icv=icv)
 
-            connection.send_raw(request)
-            response = await connection.receive()
+            connection.send_raw(request, GENERAL_PORT)
+            response = await connection.receive(GENERAL_PORT)
 
             if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
                 raise MumbleException("Expected management message")
@@ -536,8 +629,8 @@ async def exploit_memcmp(
 
     finalize_auth_tlvs(request, icv=icv)
 
-    connection.send_raw(request)
-    response = await connection.receive()
+    connection.send_raw(request, GENERAL_PORT)
+    response = await connection.receive(GENERAL_PORT)
 
     if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
         raise MumbleException("Expected management message in response")
@@ -579,8 +672,8 @@ async def exploit_zerolength(
 
     add_auth_tlv(message, "hmac", 0)
 
-    connection.send(message)
-    response = await connection.receive()
+    connection.send(message, GENERAL_PORT)
+    response = await connection.receive(GENERAL_PORT)
 
     if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
         raise MumbleException("Expected management message in response")
@@ -621,8 +714,8 @@ async def exploit_replay(
 
     add_auth_tlv(initial_message, "hmac")
 
-    connection.send(initial_message)
-    response = await connection.receive_raw()
+    connection.send(initial_message, GENERAL_PORT)
+    response = await connection.receive_raw(GENERAL_PORT)
 
     altered_request = bytearray(response).rstrip(b'\0')[:-4]
 
@@ -635,8 +728,8 @@ async def exploit_replay(
     
     altered_request += b'\0' * (len(response) - len(altered_request))
 
-    connection.send_raw(altered_request)
-    response = await connection.receive()
+    connection.send_raw(altered_request, GENERAL_PORT)
+    response = await connection.receive(GENERAL_PORT)
 
     if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
         raise MumbleException("Expected management message in response")
@@ -716,8 +809,8 @@ async def exploit_timing(
                 
                 j += 1
 
-            connection.send_raw(request)
-            response = await connection.receive()
+            connection.send_raw(request, GENERAL_PORT)
+            response = await connection.receive(GENERAL_PORT)
 
             if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
                 raise MumbleException("Expected management message")
