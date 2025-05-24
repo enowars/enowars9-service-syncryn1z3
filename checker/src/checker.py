@@ -837,6 +837,9 @@ async def exploit_timing(
                 last_time = tlv.payload.management.payload.time
                 j += 1
 
+        # Optimization: filter out obvious outliers (required for CI)
+        durations[durations > np.median(durations) + 5000] = 0
+
         guess = string.printable[np.argmax(durations)].encode("ascii")
         sqrt_duration = np.sqrt(np.sum(durations))
 

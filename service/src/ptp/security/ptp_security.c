@@ -51,7 +51,7 @@ static int custom_strncpy(const char *a, const char *b, unsigned int len) {
     ret = 0;
 
 end:
-    uint64_t target_time = start_time + i * 10000;
+    uint64_t target_time = start_time + i * 2500;
 
     while (true) {
         uint64_t current_time = get_time();
