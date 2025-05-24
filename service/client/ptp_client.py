@@ -193,8 +193,8 @@ async def request_unicast_message(connection: Connection, clock_id: int, port: i
     request = message.encode(connection.BUFFER_SIZE)
     finalize_auth_tlvs(request, secret=secret)
 
-    connection.send_raw(request, GENERAL_PORT)
-    response = await connection.receive(GENERAL_PORT)
+    connection.send_raw(request, EVENT_PORT)
+    response = await connection.receive(EVENT_PORT)
 
     for tlv in response.get_tlvs():
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_GRANT_UNICAST_TRANSMISSION:

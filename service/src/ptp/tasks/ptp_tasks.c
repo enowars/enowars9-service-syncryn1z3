@@ -44,7 +44,7 @@ static int ptp_send_announce(struct ptp_state *state, struct common_message_info
 
     transaction.request = request;
 
-    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_GENERAL, PTP_MESSAGE_TYPE_ANNOUNCE, port_id, transaction.request->message.sequence_id);
+    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_EVENT, PTP_MESSAGE_TYPE_ANNOUNCE, port_id, transaction.request->message.sequence_id);
     if (ret) {
         return ret;
     }
@@ -289,7 +289,8 @@ static int ptp_handle_message_delay_request(struct ptp_state *state, struct comm
         return -EINVAL;
     }
 
-    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_GENERAL, PTP_MESSAGE_TYPE_DELAY_RESPONSE, transaction.request->message.payload.event.port_id, transaction.request->message.sequence_id);
+    // This should be COMMON_PORT_TYPE_GENERAL, but that creates problems with NAT
+    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_EVENT, PTP_MESSAGE_TYPE_DELAY_RESPONSE, transaction.request->message.payload.event.port_id, transaction.request->message.sequence_id);
     if (ret) {
         return ret;
     }
@@ -311,11 +312,12 @@ static int ptp_handle_message_signaling(struct ptp_state *state, struct common_m
 
     transaction.request = request;
 
-    if (transaction.request->port_type != COMMON_PORT_TYPE_GENERAL) {
+    if (transaction.request->port_type != COMMON_PORT_TYPE_EVENT) {
         return -EINVAL;
     }
 
-    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_GENERAL, PTP_MESSAGE_TYPE_SIGNALING, transaction.request->message.payload.signaling.target_port_id, transaction.request->message.sequence_id);
+    // This should be COMMON_PORT_TYPE_GENERAL, but that creates problems with NAT
+    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_EVENT, PTP_MESSAGE_TYPE_SIGNALING, transaction.request->message.payload.signaling.target_port_id, transaction.request->message.sequence_id);
     if (ret) {
         return ret;
     }
