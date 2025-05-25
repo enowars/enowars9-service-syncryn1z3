@@ -247,7 +247,7 @@ check:
     }
 
     ret = ptp_check_icv(info, &tlv->payload.authentication, entry);
-    if (ret < 0) {
+    if (ret) {
         return ret;
     }
 
