@@ -82,9 +82,14 @@ class Connection:
         
     async def receive_raw(self, port):
         try:
-            return await asyncio.wait_for(self.protocol.queue.get(), 1.0)
+            response = await asyncio.wait_for(self.protocol.queue.get(), 1.0)
         except asyncio.TimeoutError:
             raise OfflineException("Timeout waiting for response")
+        
+        if (len(response) + 42) % 16 != 0:
+            raise MumbleException("Invalid message length of response")
+        
+        return response
 
     def send(self, message, port):
         request = message.encode(self.BUFFER_SIZE)
