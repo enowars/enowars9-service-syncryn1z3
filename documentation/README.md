@@ -33,7 +33,20 @@ Integer signed conversion during TLV parsing.
 
 #### Exploit
 Send a (garbage) management frame to the target port_id. The server will return a management frame indicating an error that is signed with an authentication TLV. However the signature only covers part of the frame. The padding at the end the frame can be modified. The attacker can now insert a request TLV for the flag into the padding followed by a padding TLV with a negative length. The attacker can now send the packet back to the server. During parsing the valid authentication TLV will be duplicated due to the negative length. The following logic will therefore interpret the malicious request to be signed correctly and return the flag.
+```
+Server response:
+| Header | Management TLV | Authentication TLV |             Padding TLV            |
+<------------ Autheticated content ------------>
 
+Altered request:
+| Header | Management TLV | Authentication TLV | Malicius Padding TLV | Padding TLV |
+                                                                      | Length: -XX |
+                          <----------------- XX bytes ---------------->
+
+Parsing result of altered request:
+| Header | Management TLV | Authentication TLV | Malicius Padding TLV | Padding TLV | Authentication TLV (again) | ... |
+<--------------------------------------------- Autheticated content --------------------------------------------->
+```
 
 ### 3. Zero-length ICV
 #### Overview
