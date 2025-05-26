@@ -6,14 +6,14 @@ import subprocess
 def main():
     ffi = cffi.FFI()
 
-    definitions = subprocess.check_output("gcc -E -P -I../../service/src/ ../../service/src/ptp/protocol/ptp_protocol.h", shell=True)  
+    definitions = subprocess.check_output("gcc -E -P protocol/ptp_protocol.h", shell=True)  
 
     ffi.cdef(definitions.decode())
     ffi.set_source(
         "ptp_protocol",
-        "#include <ptp/protocol/ptp_protocol.h>",
-        sources=["../../../service/src/ptp/protocol/ptp_encoding.c", "../../../service/src/ptp/protocol/ptp_decoding.c"],
-        include_dirs=["../../../service/src/"],
+        "#include \"ptp_protocol.h\"",
+        sources=["../protocol/ptp_encoding.c", "../protocol/ptp_decoding.c"],
+        include_dirs=["../protocol/"],
     )
 
     ffi.compile(tmpdir="build", debug=True)

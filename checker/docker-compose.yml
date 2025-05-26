@@ -1,8 +1,6 @@
 services:
   syncryn1z3-checker:
-    build:
-      dockerfile: checker/Dockerfile
-      context: ..
+    build: .
     ports:
       - 11588:8000
     environment:

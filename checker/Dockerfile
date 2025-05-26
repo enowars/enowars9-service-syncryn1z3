@@ -7,8 +7,7 @@ RUN apt-get update && apt-get install -y gcc && apt-get clean && rm -rf /var/lib
 RUN python3 -m pip install cffi
 
 # Copy sources
-COPY checker/src src
-COPY service/src ../service/src
+COPY src src
 RUN cd src && python3 build.py
 
 
@@ -23,12 +22,12 @@ RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 # Add checker user
 RUN useradd -ms /bin/bash -u 1000 checker
 
-COPY checker/requirements.txt .
+COPY requirements.txt .
 
 USER checker
 RUN python3 -m pip install -r requirements.txt
 
-COPY checker/src .
+COPY src .
 COPY --from=build checker/src/*.so .
 
 ENTRYPOINT [ "/home/checker/.local/bin/gunicorn", "-c", "gunicorn.conf.py", "checker:app" ]
