@@ -28,14 +28,8 @@ class UdpClientProtocol(asyncio.DatagramProtocol):
         self.transport = None
         self.queue = asyncio.Queue()
 
-        self.on_con_lost = asyncio.get_event_loop().create_future()
-
     def connection_made(self, transport):
         self.transport = transport
-
-    def connection_lost(self, exc):
-        if not self.on_con_lost.done():
-            self.on_con_lost.set_result(True)
 
     def datagram_received(self, data, address):
         try:
@@ -44,8 +38,7 @@ class UdpClientProtocol(asyncio.DatagramProtocol):
             raise PtpException(f"Transport exception: {e}")
 
     def error_received(self, exc):
-        if not self.response.done():
-            self.response.set_exception(exc)
+        raise PtpException(f"Received error: {exc}")
 
 class Connection:
     BUFFER_SIZE = 1472

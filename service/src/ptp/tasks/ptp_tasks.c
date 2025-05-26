@@ -429,7 +429,7 @@ int ptp_handle_message(struct ptp_state *state) {
         case PTP_MESSAGE_TYPE_SYNC:
         case PTP_MESSAGE_TYPE_DELAY_RESPONSE:
         case PTP_MESSAGE_TYPE_ANNOUNCE: {
-            // Ignore
+            // Ignore, we are running in master-only mode
             break;
         }
 
