@@ -35,6 +35,7 @@ from enochecker3.utils import assert_equals, assert_in
 import ptp_protocol
 import ptp_message
 
+
 """
 Checker config
 """
@@ -45,80 +46,6 @@ GENERAL_PORT = 320
 HTTP_PORT = 1588
 checker = Enochecker("syncryn1z3", HTTP_PORT)
 app = lambda: checker.app
-
-
-"""
-Dependencies
-"""
-
-
-class UdpClientProtocol(asyncio.DatagramProtocol):
-    def __init__(self):
-        self.transport = None
-        self.queue = asyncio.Queue()
-
-        self.on_con_lost = asyncio.get_event_loop().create_future()
-
-    def connection_made(self, transport):
-        self.transport = transport
-
-    def connection_lost(self, exc):
-        if not self.on_con_lost.done():
-            self.on_con_lost.set_result(True)
-
-    def datagram_received(self, data, address):
-        self.queue.put_nowait(data)
-
-class Connection:
-    BUFFER_SIZE = 1472
-
-    def __init__(self, remote_address, protocol: UdpClientProtocol, logger: LoggerAdapter):
-        self.remote_address = remote_address
-        self.protocol = protocol
-        self.logger = logger
-
-    def send_raw(self, request, port):
-        self.protocol.transport.sendto(request, (self.remote_address, port))
-        
-    async def receive_raw(self, port):
-        try:
-            response = await asyncio.wait_for(self.protocol.queue.get(), 1.0)
-        except asyncio.TimeoutError:
-            raise OfflineException("Timeout waiting for response")
-        
-        if (len(response) + 42) % 16 != 0:
-            raise MumbleException("Invalid message length of response")
-        
-        return response
-
-    def send(self, message, port):
-        request = message.encode(self.BUFFER_SIZE)
-        self.send_raw(request, port)
-
-    async def receive(self, port):
-        response = await self.receive_raw(port)
-        message = ptp_message.from_buffer(response)
-
-        return message
-
-@checker.register_dependency
-@contextlib.asynccontextmanager
-async def _get_async_udp_protocol(logger: LoggerAdapter) -> typing.AsyncIterator[UdpClientProtocol]:
-    try:
-        transport, protocol = await asyncio.get_running_loop().create_datagram_endpoint(lambda: UdpClientProtocol(), local_addr=("0.0.0.0", 0))
-    except Exception as e:
-        logger.info(f"Failed to create UDP endpoint {e}")
-        raise InternalErrorException("Could not create UDP socket")
-
-    try:
-        yield protocol
-    finally:
-        transport.close()
-        await protocol.on_con_lost
-
-@checker.register_dependency
-def _get_connection(task: BaseCheckerTaskMessage, protocol: typing.AsyncIterator[UdpClientProtocol], logger: LoggerAdapter) -> Connection:
-    return Connection(task.address, protocol, logger)
 
 
 """
@@ -138,7 +65,7 @@ def generate_timestamp():
     return random.randint(0x0, 0xffffffffffffffff)
 
 def encode_port_id(clock_id: int, port: int):
-    return hex(clock_id) + ":" + hex(port)
+    return f"{clock_id:x}:{port:x}"
 
 def decode_port_id(port_id: str):
     parts = port_id.split(":")
@@ -152,6 +79,94 @@ def policy_to_int(policy: str):
         return ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_PLAIN
     else:
         raise InternalErrorException(f"Unknown policy {policy}")
+
+
+"""
+Dependencies
+"""
+
+class UdpClientProtocol(asyncio.DatagramProtocol):
+    def __init__(self):
+        self.transport = None
+        self.queue = asyncio.Queue()
+
+        self.on_con_lost = asyncio.get_event_loop().create_future()
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def connection_lost(self, exc):
+        if not self.on_con_lost.done():
+            self.on_con_lost.set_result(True)
+
+    def datagram_received(self, data, address):
+        self.queue.put_nowait((data, address))
+
+class Connection:
+    BUFFER_SIZE = 1472
+
+    def __init__(self, remote_address, protocol: UdpClientProtocol, logger: LoggerAdapter):
+        self.remote_address = remote_address
+        self.protocol = protocol
+        self.logger = logger
+
+    def send_raw(self, request, port):
+        self.protocol.transport.sendto(request, (self.remote_address, port))
+
+        self.logger.debug(f"Sent message to {(self.remote_address, port)}")
+        
+    async def receive_raw(self, port):
+        try:
+            response, address = await asyncio.wait_for(self.protocol.queue.get(), 1.0)
+        except asyncio.TimeoutError:
+            raise OfflineException("Timeout waiting for response")
+        
+        self.logger.debug(f"Received message from {address}")
+        
+        if (len(response) + 42) % 16 != 0:
+            self.logger.debug(f"Received message length: {len(response)}")
+            raise MumbleException("Invalid message length of response")
+
+        return response
+
+    def send(self, message, port):
+        request = message.encode(self.BUFFER_SIZE)
+        self.send_raw(request, port)
+
+    async def receive(self, port):
+        response = await self.receive_raw(port)
+        message = ptp_message.from_buffer(response)
+
+        self.logger.debug(f"Decoded received message (type: {message.decoded.type}, seqno: {message.decoded.sequence_id}, port_id: {encode_port_id(message.decoded.port_id.clock_id, message.decoded.port_id.port)}, flags: {message.decoded.flags:x}, tlvs: {len(message.get_tlvs())})")
+
+        if message.decoded.type == ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
+            self.logger.debug(f"Decoded management message: (action: {message.decoded.payload.management.action}, target_port_id: {encode_port_id(message.decoded.payload.management.target_port_id.clock_id, message.decoded.payload.management.target_port_id.port)})")
+
+        return message
+
+@checker.register_dependency
+@contextlib.asynccontextmanager
+async def _get_async_udp_protocol(logger: LoggerAdapter) -> typing.AsyncIterator[UdpClientProtocol]:
+    try:
+        transport, protocol = await asyncio.get_running_loop().create_datagram_endpoint(lambda: UdpClientProtocol(), local_addr=("0.0.0.0", 0))
+    except Exception as e:
+        logger.error(f"Failed to create UDP endpoint {e}")
+        raise InternalErrorException("Could not create UDP socket")
+
+    try:
+        yield protocol
+    finally:
+        transport.close()
+        await protocol.on_con_lost
+
+@checker.register_dependency
+def _get_connection(task: BaseCheckerTaskMessage, protocol: typing.AsyncIterator[UdpClientProtocol], logger: LoggerAdapter) -> Connection:
+    return Connection(task.address, protocol, logger)
+
+
+"""
+Message functions
+"""
 
 def add_auth_tlv(message, policy: str, icv_length=None):
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION)
@@ -191,7 +206,14 @@ def finalize_auth_tlvs(request, secret=b"", icv=None):
     for tlv in message.get_tlvs():
         finalize_auth_tlv(tlv, request, secret, icv)
 
+
+"""
+Functionality functions
+"""
+
 async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, description: bytes, expect_error=False):
+    logger.debug(f"Claiming port (port_id: {encode_port_id(clock_id, port)}, secret: {secret}, policy: {policy})")
+    
     if (len(secret) > 100):
         raise InternalErrorException("Secret too large")
 
@@ -233,7 +255,7 @@ async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: in
             if expect_error:
                 return ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()
             else:
-                logger.debug(f"Unexpected management error (claim_port): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
+                logger.info(f"Unexpected management error (claim_port): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
                 raise MumbleException("Unexpected management error in PORT_CLAIM response")
 
     if received_description is None:
@@ -245,6 +267,8 @@ async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: in
         raise MumbleException("Expected management error in PORT_CLAIM response")
 
 async def get_user_description(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, expect_error=False):
+    logger.debug(f"Get user description (port_id: {encode_port_id(clock_id, port)}, secret: {secret}, policy: {policy})")
+
     local_clock_id, local_port = generate_port_id()
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
 
@@ -279,7 +303,7 @@ async def get_user_description(connection: Connection, logger: LoggerAdapter, cl
             if expect_error:
                 return ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()
             else:
-                logger.debug(f"Unexpected management error (get user description): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
+                logger.info(f"Unexpected management error (get user description): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
                 raise MumbleException("Unexpected management error in USER_DESCRIPTION response")
 
     if expect_error:
@@ -288,6 +312,8 @@ async def get_user_description(connection: Connection, logger: LoggerAdapter, cl
     return received_description.decode()
     
 async def get_time(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, expect_error=False):
+    logger.debug(f"Get time (port_id: {encode_port_id(clock_id, port)})")
+
     local_clock_id, local_port = generate_port_id()
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
 
@@ -318,7 +344,7 @@ async def get_time(connection: Connection, logger: LoggerAdapter, clock_id: int,
             if expect_error:
                 return ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()
             else:
-                logger.debug(f"Unexpected management error (get time): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
+                logger.info(f"Unexpected management error (get time): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
                 raise MumbleException("Unexpected management error in TIME response")
 
     if current_time is None:
@@ -330,6 +356,8 @@ async def get_time(connection: Connection, logger: LoggerAdapter, clock_id: int,
     return current_time
 
 async def request_unicast_message(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, type: int):
+    logger.debug(f"Request unicast message (port_id: {encode_port_id(clock_id, port)}, secret: {secret}, policy: {policy})")
+
     local_clock_id, local_port = generate_port_id()
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_SIGNALING, local_clock_id, local_port, 0)
 
@@ -358,6 +386,8 @@ async def request_unicast_message(connection: Connection, logger: LoggerAdapter,
     raise MumbleException("Received no unicast transmission grant")
 
 async def run_synchronization(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str):
+    logger.debug(f"Run synchronization (port_id: {encode_port_id(clock_id, port)}, secret: {secret}, policy: {policy})")
+
     await request_unicast_message(connection, logger, clock_id, port, secret, policy, ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
 
     sync = await connection.receive(EVENT_PORT)
@@ -384,8 +414,9 @@ async def run_synchronization(connection: Connection, logger: LoggerAdapter, clo
     if (t1 >= t4):
         raise MumbleException("Timejump during synchronization process")
 
+
 """
-CHECKER FUNCTIONS
+Checker functions
 """
 
 @checker.putflag(0)
@@ -608,7 +639,7 @@ async def exploit_memcmp(
                     return tlv.payload.management_error_status.error_id - 0xc000
                 elif tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
                     # Early return in case we guessed the ICV prematurely
-                    logger.debug("Early return")
+                    logger.info("Early return")
                     return 0
                 
             raise MumbleException("No error status in response")
@@ -647,7 +678,7 @@ async def exploit_memcmp(
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
                 received_flag = ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
-                logger.debug(f"Received flag {received_flag}")
+                logger.info(f"Received flag {received_flag}")
                 return received_flag
 
 
@@ -690,7 +721,7 @@ async def exploit_zerolength(
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
                 received_flag = ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
-                logger.debug(f"Received flag {received_flag}")
+                logger.info(f"Received flag {received_flag}")
                 return received_flag
 
 @checker.exploit(2)
@@ -746,7 +777,7 @@ async def exploit_replay(
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
                 received_flag = ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
-                logger.debug(f"Received flag {received_flag}")
+                logger.info(f"Received flag {received_flag}")
                 return received_flag
 
 @checker.exploit(3)
@@ -852,11 +883,12 @@ async def exploit_timing(
     
     sqrt_durations = [0]
 
+    # Likely not as many iterations needed, but I don't want the CI to randomly fail
     for _ in range(100):
         guess, sqrt_duration, received_flag = await guess_char(bytes(secret))
 
         if received_flag is not None:
-            logger.debug(f"Received flag {received_flag}")
+            logger.info(f"Received flag {received_flag}")
             return received_flag
         
         # Backtracking if we made an error due to noise
