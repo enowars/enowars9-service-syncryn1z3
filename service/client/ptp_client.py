@@ -37,8 +37,8 @@ class UdpClientProtocol(asyncio.DatagramProtocol):
         except Exception as e:
             raise PtpException(f"Transport exception: {e}")
 
-    def error_received(self, exc):
-        raise PtpException(f"Received error: {exc}")
+    def error_received(self, e):
+        raise PtpException(f"Received error: {e}")
 
 class Connection:
     BUFFER_SIZE = 1472

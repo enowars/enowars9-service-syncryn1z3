@@ -1,14 +1,13 @@
 import asyncio
 import typing
-import traceback
 import contextlib
 import random
 import string
-import faker
 import secrets
 import hmac
 import hashlib
 import struct
+import errno
 import numpy as np
 
 from logging import LoggerAdapter
@@ -101,6 +100,14 @@ class UdpClientProtocol(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, address):
         self.queue.put_nowait((data, address))
+
+    def error_received(self, e):
+        error = abs(e.errno)
+
+        if error == errno.ENOENT or error == errno.ECONNRESET or error == errno.EHOSTUNREACH or error == errno.ENETUNREACH:
+            raise OfflineException(f"Transport error: {e}")
+        else:
+            raise InternalErrorException(f"Transport error: {e}")
 
 class Connection:
     BUFFER_SIZE = 1472
