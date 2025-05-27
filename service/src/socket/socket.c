@@ -5,14 +5,11 @@
 #include <endian.h>
 #include <errno.h>
 #include <ifaddrs.h>
-#include <sys/signalfd.h>
-#include <sys/epoll.h>
 #include <arpa/inet.h>
 
 #include <socket/socket.h>
 #include <common/common_types.h>
 #include <util/error.h>
-#include <util/signal.h>
 
 static int send_message(struct socket_state *state) {
     int ret;
@@ -83,62 +80,25 @@ static int receive_message(struct socket_state *state, struct socket_instance *i
     return 0;
 }
 
-static void *thread_worker(void *arg) {
+static void socket_poll(uv_poll_t* handle, int status, int events) {
     int ret;
+    struct socket_instance *instance = (struct socket_instance *)handle->data;
 
-    struct socket_state *state = (struct socket_state *)arg;
-
-    int epoll_fd;
-
-    struct epoll_event event;
-
-    util_block_signals();
-
-    epoll_fd = epoll_create1(0);
-    if (epoll_fd < 0) {
-        perror("epoll_create1 failed");
-        exit(EXIT_FAILURE);
+    if (!(events & UV_READABLE)) {
+        return;
     }
 
-    for (int i = 0; i < SOCKET_INSTANCE_NUM; ++i) {
-        event.events = EPOLLIN;
-        event.data.ptr = &state->instances[i];
+    receive_message(instance->state, instance);
 
-        ret = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, state->instances[i].fd, &event);
-        if (ret) {
-            perror("epoll_ctl for socket fd failed");
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    while (!state->exit_flag) {
-        ret = epoll_wait(epoll_fd, &event, 1, 10);
-        if (ret < 0) {
-            perror("epoll_wait failed");
-            continue;
-        }
-
-        const int event_count = ret;
-
-        if (event_count > 0) {
-            receive_message(state, event.data.ptr);
-        }
-
-        do {
-            ret = send_message(state);
-        } while (!ret);
-    }
-
-    ret = close(epoll_fd);
-    if (ret) {
-        perror("Failed to close epoll fd");
-    }
-
-    return NULL;
+    do {
+        ret = send_message(instance->state);
+    } while (!ret);
 }
 
 static int socket_setup_port(struct socket_state *state, struct socket_instance *instance) {
     int ret;
+
+    instance->state = state;
 
     instance->fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (instance->fd < 0) {
@@ -171,6 +131,18 @@ static int socket_setup_port(struct socket_state *state, struct socket_instance 
     ret = util_mempool_setup(&state->mempool, sizeof(struct common_message_info), COMMON_MEMPOOL_SIZE);
     if (ret) {
         goto out;
+    }
+
+    ret = uv_poll_init(state->config->loop, &instance->handle, instance->fd);
+    if (ret) {
+        util_error(ret, "Failed to initialize uv poll handle");
+    }
+
+    instance->handle.data = instance;
+
+    ret = uv_poll_start(&instance->handle, UV_READABLE, socket_poll);
+    if (ret) {
+        util_error(ret, "Failed to start uv poll");
     }
 
     return 0;
@@ -216,34 +188,6 @@ int socket_cleanup(struct socket_state *state) {
 
     ret = util_mempool_cleanup(&state->mempool);
     if (ret) {
-        return ret;
-    }
-
-    return 0;
-}
-
-int socket_start(struct socket_state *state) {
-    int ret;
-
-    state->exit_flag = false;
-
-    ret = pthread_create(&state->thread, NULL, thread_worker, (void *)state);
-    if (ret) {
-        perror("pthread_create failed");
-        return ret;
-    }
-
-    return 0;
-}
-
-int socket_stop(struct socket_state *state) {
-    int ret;
-
-    state->exit_flag = true;
-
-    ret = pthread_join(state->thread, NULL);
-    if (ret) {
-        perror("pthread_join failed");
         return ret;
     }
 

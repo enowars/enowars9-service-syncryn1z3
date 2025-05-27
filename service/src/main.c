@@ -1,14 +1,17 @@
 #include <string.h>
 #include <stdio.h>
 
+#include <uv.h>
+
 #include <ptp/ptp.h>
 #include <ptp/ptp_defaults.h>
 #include <socket/socket.h>
-#include <util/signal.h>
+#include <ws/ws.h>
 
 struct main_config {
     struct ptp_config ptp;
     struct socket_config socket;
+    struct ws_config ws;
 };
 
 struct main_state {
@@ -16,7 +19,14 @@ struct main_state {
 
     struct ptp_state ptp;
     struct socket_state socket;
+    struct ws_state ws;
+
+    uv_loop_t *loop;
 };
+
+static void handle_signal(uv_signal_t *handle, int signum) {
+    uv_stop(handle->loop);
+}
 
 int main(int argc, char *argv[]) {
     (void)argc;
@@ -25,11 +35,14 @@ int main(int argc, char *argv[]) {
     int ret;
 
     struct main_state state;
+    uv_signal_t signal;
 
     // Line buffered output
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     memset(&state, 0, sizeof(state));
+
+    state.loop = uv_default_loop();
 
     state.config.ptp.clock_priority = 0;
     state.config.ptp.clock_quality.clock_class = PTP_CLOCK_CLASS_APPLICATION_SPECIFIC;
@@ -38,11 +51,15 @@ int main(int argc, char *argv[]) {
 
     state.config.ptp.port_db_filename = "/data/ports.db";
 
+    state.config.socket.loop = state.loop;
     state.config.socket.event_port = ptp_default_event_port;
     state.config.socket.general_port = ptp_default_general_port;
     state.config.socket.enqueue_callback = ptp_enqueue_message;
     state.config.socket.dequeue_callback = ptp_dequeue_message;
     state.config.socket.user_ptr = &state.ptp;
+
+    state.config.ws.loop = state.loop;
+    state.config.ws.port = 8080;
 
     printf("Starting PTP master\n");
 
@@ -56,16 +73,19 @@ int main(int argc, char *argv[]) {
         return -ret;
     }
 
-    ret = socket_start(&state.socket);
+    ret = ws_setup(&state.ws, &state.config.ws);
     if (ret) {
         return -ret;
     }
 
-    util_wait_for_exit();
+    uv_signal_init(state.loop, &signal);
+    uv_signal_start(&signal, handle_signal, SIGTERM);
+
+    uv_run(state.loop, UV_RUN_DEFAULT);
 
     printf("Shutting down...\n");
 
-    ret = socket_stop(&state.socket);
+    ret = ws_cleanup(&state.ws);
     if (ret) {
         return -ret;
     }
@@ -76,6 +96,11 @@ int main(int argc, char *argv[]) {
     }
 
     ret = ptp_cleanup(&state.ptp);
+    if (ret) {
+        return -ret;
+    }
+
+    ret = uv_loop_close(state.loop);
     if (ret) {
         return -ret;
     }
