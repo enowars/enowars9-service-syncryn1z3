@@ -17,51 +17,48 @@
         <h2>mostly compliant with IEEE 1588</h2>
     </header>
 
-    <div class="container">
-        <div id="notification-bar">Status</div>
+    <div class="notification-container">
+        <div id="notificationBar">Status</div>
     </div>
 
-    <div class="container">
-        <div class="form-row">
-            <div class="input-box" id="claim-box">
-                <h2>Claim Port</h2>
-                <span class="input-span">
-                    <input type="text" id="claimClockId" placeholder="Clock ID" maxlength="16">
-                    <input type="text" id="claimPort" placeholder="Port" maxlength="4">
-                </span>
-                <input type="text" id="claimUserDescription" placeholder="User description" maxlength="128">
-                <input type="password" id="claimSecret" placeholder="Secret" maxlength="100">
-                <button onclick="claimPort()">Claim</button>
-            </div>
+    <div class="main-container">
+        <div class="input-box" id="create-box">
+            <h2>Create Clock</h2>
+            <span class="input-span">
+                <input type="text" id="createClockId" placeholder="Clock ID" maxlength="16">
+                <input type="text" id="createPort" placeholder="Port" maxlength="4">
+            </span>
+            <input type="text" id="createUserDescription" placeholder="User description" maxlength="128">
+            <input type="password" id="createSecret" placeholder="Secret" maxlength="100">
+            <button onclick="createClock()">create</button>
+        </div>
 
-            <div class="input-box" id="inspect-box">
-                <h2>Inspect Port</h2>
-                <span class="input-span">
-                    <input type="text" id="inspectClockId" placeholder="Clock ID" maxlength="16">
-                    <input type="text" id="inspectPort" placeholder="Port" maxlength="4">
-                </span>
-                <input type="password" id="inspectSecret" placeholder="Secret" maxlength="100">
-                <button onclick="inspectPort()">Inspect</button>
+        <div class="input-box" id="inspect-box">
+            <h2>Inspect Clock</h2>
+            <span class="input-span">
+                <input type="text" id="inspectClockId" placeholder="Clock ID" maxlength="16">
+                <input type="text" id="inspectPort" placeholder="Port" maxlength="4">
+            </span>
+            <input type="password" id="inspectSecret" placeholder="Secret" maxlength="100">
+            <button onclick="inspectClock()">Inspect</button>
 
-                <hr>
+            <hr>
 
-                <div>
-                    <span>Authenticate to inspect port</span>
-                </div>
+            <div class="inspect-results">
+                <span id="inspectPlaceholder">Authenticate to inspect port</span>
+                <div id="inspectList" style="display: none;"></div>
             </div>
         </div>
 
-        <div class="port-table">
+        <div class="clock-results">
             <table>
                 <thead>
                     <tr>
                         <th>Clock ID</th>
                         <th>Port</th>
-                        <th>Type</th>
-                        <th>Notes</th>
                     </tr>
                 </thead>
-                <tbody id="portTable"></tbody>
+                <tbody id="clockTable"></tbody>
             </table>
         </div>
     </div>

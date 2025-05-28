@@ -1,44 +1,55 @@
 let ws;
-let current_page_index;
 
 function notifySuccess(message) {
-    const notificationBar = document.getElementById("notification-bar");
+    const notificationBar = document.getElementById("notificationBar");
 
     notificationBar.innerText = message;
     notificationBar.className = "success";
 }
 
 function notifyError(message) {
-    const notificationBar = document.getElementById("notification-bar");
+    const notificationBar = document.getElementById("notificationBar");
 
     notificationBar.innerText = message;
     notificationBar.className = "error";
 }
 
-function getPage(page_index) {
-    current_page_index = page_index;
-
-    const message = JSON.stringify({task: "get_page", page_index: page_index, page_length: 10});
+function getClocks() {
+    const message = JSON.stringify({task: "get_clocks", length: 10});
     sendMessage(message);
 }
 
-function claimPort() {
-    const clockId = document.getElementById("claimClockId").value;
-    const port = document.getElementById("claimPort").value;
-    const userDescription = document.getElementById("claimUserDescription").value;
-    const secret = document.getElementById("claimSecret").value;
+function inspectClock() {
+    const clockId = document.getElementById("inspectClockId").value;
+    const port = document.getElementById("inspectPort").value;
+    const secret = document.getElementById("inspectSecret").value;
 
     if (!clockId || !port) {
         notifyError("Please enter both clock ID and port");
         return;
     }
 
-    const message = JSON.stringify({ task: "claim_port", clockId: clockId, port: port, authenticationPolicy: "hmac128", userDescription: userDescription, secret: secret});
+    const message = JSON.stringify({ task: "inspect_clock", clockId: clockId, port: port, secret: secret});
     sendMessage(message);
 }
 
-function handleResponseGetPage(response) {
-    const table = document.getElementById("portTable");
+function createClock() {
+    const clockId = document.getElementById("createClockId").value;
+    const port = document.getElementById("createPort").value;
+    const userDescription = document.getElementById("createUserDescription").value;
+    const secret = document.getElementById("createSecret").value;
+
+    if (!clockId || !port) {
+        notifyError("Please enter both clock ID and port");
+        return;
+    }
+
+    const message = JSON.stringify({ task: "create_clock", clockId: clockId, port: port, authenticationPolicy: "hmac128", userDescription: userDescription, secret: secret});
+    sendMessage(message);
+}
+
+function handleResponseGetClocks(response) {
+    const table = document.getElementById("clockTable");
     table.innerHTML = "";
 
     for (const port of response.ports) {
@@ -59,40 +70,64 @@ function handleResponseGetPage(response) {
         tdPort.textContent = port.port;
         row.appendChild(tdPort);
 
-        const tdAuth = document.createElement("td");
-        tdAuth.textContent = port.authentication_policy;
-        row.appendChild(tdAuth);
-
-        const tdNotes = document.createElement("td");
-        tdNotes.textContent = "";
-        row.appendChild(tdNotes);
-
         table.appendChild(row);
     }
 }
 
-function handleResponseClaimPort(response) {
-    const box = document.getElementById("claim-box");
-    box.style.borderColor = "#4AB456";
+function handleResponseInspectClock(response) {
+    notifySuccess("Received clock info");
+
+    const placeholder = document.getElementById("inspectPlaceholder");
+    placeholder.style.display = "none";
+
+    const list = document.getElementById("inspectList");
+    list.style.display = "block";
+    list.innerHTML = "";
+
+    function addRow(title, value) {
+        const row = document.createElement("div");
+        row.className = "inspect-row";
+
+        const label = document.createElement("div");
+        label.className = "inspect-label";
+        label.innerText = title;
+        row.appendChild(label);
+
+        const content = document.createElement("div");
+        content.className = "inspect-content";
+        content.innerText = value;
+        row.appendChild(content);
+
+        list.appendChild(row);
+    }
+
+    addRow("User description", response.userDescription);
+    addRow("Authentication policy", response.authenticationPolicy);
+}
+
+function handleResponseCreateClock(response) {
+    const box = document.getElementById("create-box");
 
     box.querySelectorAll("input").forEach(input => {
         input.value = "";
     });
 
-    notifySuccess("Claimed port");
+    notifySuccess("Created clock");
 
-    getPage(current_page_index);
+    getClocks();
 }
 
 function handleResponse(response) {
-    if (response.task == "get_page") {
-        handleResponseGetPage(response);
-    } if (response.task == "claim_port") {
-        handleResponseClaimPort(response);
+    if (response.task == "get_clocks") {
+        handleResponseGetClocks(response);
+    } else if (response.task == "inspect_clock") {
+        handleResponseInspectClock(response);
+    } else if (response.task == "create_clock") {
+        handleResponseCreateClock(response);
     } else if (Object.hasOwn(response, "error")) {
         notifyError("Received error from server: " + response.error);
     } else {
-
+        console.error("Received faulty response", response.toString());
     }
 }
 
@@ -133,5 +168,5 @@ function sendMessage(message) {
 }
 
 window.onload = () => {
-    openConnection(() => {getPage(0);});
+    openConnection(getClocks());
 };

@@ -51,7 +51,7 @@ int db_setup(struct db_state *state, struct db_config *config) {
 
     const char *create_query =
         "CREATE TABLE IF NOT EXISTS\n"
-        "ports(clock_id INTEGER NOT NULL, port INTEGER NOT NULL, authentication_policy INTEGER, secret TEXT, user_description TEXT, UNIQUE(clock_id, port));";
+        "ports(clock_id INTEGER NOT NULL, port INTEGER NOT NULL, authentication_policy INTEGER, secret TEXT, user_description TEXT, creation_time DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(clock_id, port));";
 
     ret = sqlite3_exec(state->handle, create_query, 0, 0, &error_message);
     if (ret != SQLITE_OK) {
@@ -143,14 +143,14 @@ out:
     return ret;
 }
 
-int db_get_page(struct db_state *state, struct db_entry **entries, short page_index, short page_length) {
+int db_get_recent(struct db_state *state, struct db_entry **entries, short length) {
     int ret;
     char *error_message;
     sqlite3_stmt *statement;
 
     const char *select_query =
         "SELECT clock_id, port, authentication_policy, secret, user_description FROM ports\n"
-        "ORDER BY clock_id, port LIMIT ? OFFSET ?;";
+        "ORDER BY creation_time DESC LIMIT ?;";
 
     ret = sqlite3_prepare_v2(state->handle, select_query, -1, &statement, 0);
     if (ret != SQLITE_OK) {
@@ -158,10 +158,9 @@ int db_get_page(struct db_state *state, struct db_entry **entries, short page_in
         return -1;
     }
 
-    sqlite3_bind_int(statement, 1, page_length);
-    sqlite3_bind_int(statement, 2, page_index * page_length);
+    sqlite3_bind_int(statement, 1, length);
 
-    for (int i = 0; i < page_length; ++i) {
+    for (int i = 0; i < length; ++i) {
         ret = sqlite3_step(statement);
         if (ret != SQLITE_ROW) {
             if (ret == SQLITE_DONE) {
