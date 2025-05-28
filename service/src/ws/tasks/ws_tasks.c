@@ -138,7 +138,7 @@ int ws_handle_task_get_clocks(struct ws_state *state, struct ws_message *request
             }
 
             case PTP_AUTHENTICATION_POLICY_HMAC_128: {
-                if (!cJSON_AddStringToObject(port_json, "authenticationPolicy", "hmac128")) {
+                if (!cJSON_AddStringToObject(port_json, "authenticationPolicy", "hmac")) {
                     cJSON_Delete(port_json);
                     ret = -1;
                     goto out;
@@ -217,7 +217,7 @@ int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_message *requ
         }
 
         case PTP_AUTHENTICATION_POLICY_HMAC_128: {
-            if (!cJSON_AddStringToObject(response_json, "authenticationPolicy", "hmac128")) {
+            if (!cJSON_AddStringToObject(response_json, "authenticationPolicy", "hmac")) {
                 ret = -1;
                 goto out;
             }
@@ -259,9 +259,9 @@ int ws_handle_task_create_clock(struct ws_state *state, struct ws_message *reque
     strncpy(entry.secret, secret_json->valuestring, DB_SECRET_SIZE);
     strncpy(entry.user_description, user_description_json->valuestring, DB_USER_DESCRIPTION_SIZE);
 
-    if (strcmp(authentication_policy_json->valuestring, "plain")) {
+    if (!strcmp(authentication_policy_json->valuestring, "plain")) {
         entry.authentication_policy = PTP_AUTHENTICATION_POLICY_PLAIN;
-    } else if (strcmp(authentication_policy_json->valuestring, "hmac128")) {
+    } else if (!strcmp(authentication_policy_json->valuestring, "hmac")) {
         entry.authentication_policy = PTP_AUTHENTICATION_POLICY_HMAC_128;
     } else {
         return ws_send_error(request, EINVAL, "Invalid authentication policy");

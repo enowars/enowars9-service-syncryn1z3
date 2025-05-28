@@ -18,8 +18,8 @@ static inline int db_hash(struct ptp_decoded_port_id port_id) {
 }
 
 static inline int db_valid(struct ptp_decoded_port_id port_id) {
-    // Only allow locally administered OUI range
-    if (((port_id.clock_id >> 56) & 0xff) != 0x02) {
+    /// Do not allow special clocks
+    if (port_id.clock_id == 0 || port_id.clock_id == 0xffffffffffffffff) {
         return -EINVAL;
     }
 

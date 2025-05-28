@@ -1,4 +1,6 @@
 import asyncio
+import websockets.asyncio.client
+import websockets.exceptions
 import typing
 import contextlib
 import random
@@ -7,7 +9,9 @@ import secrets
 import hmac
 import hashlib
 import struct
+import json
 import errno
+import fake_useragent
 import numpy as np
 
 from logging import LoggerAdapter
@@ -52,7 +56,7 @@ Utility functions
 """
 
 def generate_port_id():
-    clock_id = random.randint(0x0200000000000001, 0x02ffffffffffffff)
+    clock_id = random.randint(0x1, 0x7ffffffffffffffe)
     port = random.randint(0x1, 0xfffe)
 
     return clock_id, port
@@ -105,11 +109,11 @@ class UdpClientProtocol(asyncio.DatagramProtocol):
         error = abs(e.errno)
 
         if error == errno.ENOENT or error == errno.ECONNRESET or error == errno.EHOSTUNREACH or error == errno.ENETUNREACH:
-            raise OfflineException(f"Transport error: {e}")
+            raise OfflineException(f"UDP transport error: {e}")
         else:
-            raise InternalErrorException(f"Transport error: {e}")
+            raise InternalErrorException(f"UDP transport error: {e}")
 
-class Connection:
+class UdpConnection:
     BUFFER_SIZE = 1472
 
     def __init__(self, remote_address, protocol: UdpClientProtocol, logger: LoggerAdapter):
@@ -126,7 +130,7 @@ class Connection:
         try:
             response, address = await asyncio.wait_for(self.protocol.queue.get(), 1.0)
         except asyncio.TimeoutError:
-            raise OfflineException("Timeout waiting for response")
+            raise OfflineException("Timeout waiting for UDP response")
         
         self.logger.debug(f"Received message from {address}")
         
@@ -150,6 +154,38 @@ class Connection:
             self.logger.debug(f"Decoded management message: (action: {message.decoded.payload.management.action}, target_port_id: {encode_port_id(message.decoded.payload.management.target_port_id.clock_id, message.decoded.payload.management.target_port_id.port)})")
 
         return message
+    
+class WsConnection:
+    def __init__(self, uri: str, logger: LoggerAdapter):
+        self.uri = uri
+        self.logger = logger
+        self.websocket = None
+
+    async def connect(self):
+        try:
+            self.websocket = await websockets.asyncio.client.connect(self.uri, open_timeout=1, user_agent_header=fake_useragent.UserAgent().random)
+        except TimeoutError:
+            raise OfflineException("Websocket connection timeout")
+        except:
+            raise OfflineException("Websocket connection failed")
+        
+        self.logger.debug(f"Websocket connected to {self.uri}")
+
+    async def send(self, message: str):        
+        await self.websocket.send(message)
+        self.logger.debug(f"Sent websocket message: {message}")
+
+    async def receive(self) -> str:        
+        try:
+            message = await asyncio.wait_for(self.websocket.recv(), 1)
+        except asyncio.TimeoutError:
+            raise OfflineException("Timeout waiting for websocket message")
+        except websockets.exceptions.ConnectionClosed:
+            raise OfflineException("Websocket connection closed")
+        
+        self.logger.debug(f"Received websocket message: {message}")
+        
+        return message
 
 @checker.register_dependency
 @contextlib.asynccontextmanager
@@ -167,8 +203,15 @@ async def _get_async_udp_protocol(logger: LoggerAdapter) -> typing.AsyncIterator
         await protocol.on_con_lost
 
 @checker.register_dependency
-def _get_connection(task: BaseCheckerTaskMessage, protocol: typing.AsyncIterator[UdpClientProtocol], logger: LoggerAdapter) -> Connection:
-    return Connection(task.address, protocol, logger)
+def _get_udp_connection(task: BaseCheckerTaskMessage, protocol: typing.AsyncIterator[UdpClientProtocol], logger: LoggerAdapter) -> UdpConnection:
+    return UdpConnection(task.address, protocol, logger)
+
+@checker.register_dependency
+async def _get_ws_connection(task: BaseCheckerTaskMessage, logger: LoggerAdapter) -> WsConnection:
+    connection = WsConnection(f"ws://{task.address}:{HTTP_PORT}/ws/", logger)
+    await connection.connect()
+
+    return connection
 
 
 """
@@ -218,62 +261,35 @@ def finalize_auth_tlvs(request, secret=b"", icv=None):
 Functionality functions
 """
 
-async def claim_port(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, description: bytes, expect_error=False):
-    logger.debug(f"Claiming port (port_id: {encode_port_id(clock_id, port)}, secret: {secret}, policy: {policy})")
+async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id: int, port: int, secret: str, policy: str, description: str, expect_error=False):
+    request = json.dumps({
+        "task": "create_clock",
+        "clockId": f"{clock_id:x}",
+        "port": f"{port:x}",
+        "authenticationPolicy": policy,
+        "userDescription": description,
+        "secret": secret})
     
-    if (len(secret) > 100):
-        raise InternalErrorException("Secret too large")
+    await connection.send(request)
+    response = await connection.receive()
 
-    if (len(description) > 128):
-        raise InternalErrorException("User description too large")
-    
-    local_clock_id, local_port = generate_port_id()
-    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
+    try:
+        response_decoded = json.loads(response)
+    except json.JSONDecodeError:
+        raise MumbleException("Failed to decode JSON reponse")
 
-    payload = message.get_payload()
-    payload.management.target_port_id.clock_id = clock_id
-    payload.management.target_port_id.port = port
-    payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_COMMAND
-    payload.management.starting_boundary_hops = 0
-    payload.management.boundary_hops = 0
-
-    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
-    tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM
-    tlv.payload.management.payload.port_claim.authentication_policy = policy_to_int(policy)
-    ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.port_secret, secret + b'\0', len(secret) + 1)
-    ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.user_description, description + b'\0', len(description) + 1)
-
-    connection.send(message, GENERAL_PORT)
-    response = await connection.receive(GENERAL_PORT)
-
-    if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
-        raise MumbleException("Expected management message in response")
-    
-    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_ACKNOWLEDGE and not expect_error:
-        raise MumbleException("Expected management acknowledge action")
-
-    received_description = None
-
-    for tlv in response.get_tlvs():
-        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
-            if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM:
-                received_description = ptp_protocol.ffi.string(tlv.payload.management.payload.port_claim.user_description)
-        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
-            if expect_error:
-                return ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()
-            else:
-                logger.info(f"Unexpected management error (claim_port): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
-                raise MumbleException("Unexpected management error in PORT_CLAIM response")
-
-    if received_description is None:
-        raise MumbleException("Received no PORT_CLAIM TLV")
-    
-    assert_equals(received_description, description, "Received wrong user description in PORT_CLAIM response")
-    
     if expect_error:
-        raise MumbleException("Expected management error in PORT_CLAIM response")
+        try:
+            return response_decoded["error"]
+        except KeyError:
+            raise MumbleException("Expected 'error' key in JSON response")
+    else:
+        try:
+            assert_equals(response_decoded["task"], "create_clock", "Task mismatch in response")
+        except KeyError:
+            raise MumbleException("Expected 'task' key in JSON response")
 
-async def get_user_description(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, expect_error=False):
+async def get_user_description(connection: UdpConnection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, expect_error=False):
     logger.debug(f"Get user description (port_id: {encode_port_id(clock_id, port)}, secret: {secret}, policy: {policy})")
 
     local_clock_id, local_port = generate_port_id()
@@ -318,7 +334,7 @@ async def get_user_description(connection: Connection, logger: LoggerAdapter, cl
     
     return received_description.decode()
     
-async def get_time(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, expect_error=False):
+async def get_time(connection: UdpConnection, logger: LoggerAdapter, clock_id: int, port: int, expect_error=False):
     logger.debug(f"Get time (port_id: {encode_port_id(clock_id, port)})")
 
     local_clock_id, local_port = generate_port_id()
@@ -362,7 +378,7 @@ async def get_time(connection: Connection, logger: LoggerAdapter, clock_id: int,
     
     return current_time
 
-async def request_unicast_message(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, type: int):
+async def request_unicast_message(connection: UdpConnection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, type: int):
     logger.debug(f"Request unicast message (port_id: {encode_port_id(clock_id, port)}, secret: {secret}, policy: {policy})")
 
     local_clock_id, local_port = generate_port_id()
@@ -392,7 +408,7 @@ async def request_unicast_message(connection: Connection, logger: LoggerAdapter,
 
     raise MumbleException("Received no unicast transmission grant")
 
-async def run_synchronization(connection: Connection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str):
+async def run_synchronization(connection: UdpConnection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str):
     logger.debug(f"Run synchronization (port_id: {encode_port_id(clock_id, port)}, secret: {secret}, policy: {policy})")
 
     await request_unicast_message(connection, logger, clock_id, port, secret, policy, ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
@@ -430,13 +446,13 @@ Checker functions
 async def putflag_user_description_hmac(
     task: PutflagCheckerTaskMessage,
     db: ChainDB,
-    connection: Connection,
+    connection: WsConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
     secret = generate_secret(50)
 
-    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", task.flag.encode("utf-8"))
+    await create_clock(connection, logger, clock_id, port, secret, "hmac", task.flag)
 
     await db.set("userdata", (clock_id, port, secret))
 
@@ -446,13 +462,13 @@ async def putflag_user_description_hmac(
 async def putflag_user_description_plain(
     task: PutflagCheckerTaskMessage,
     db: ChainDB,
-    connection: Connection,
+    connection: WsConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
     secret = generate_secret(8)
 
-    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "plain", task.flag.encode("utf-8"))
+    await create_clock(connection, logger, clock_id, port, secret, "plain", task.flag)
 
     await db.set("userdata", (clock_id, port, secret))
 
@@ -462,7 +478,7 @@ async def putflag_user_description_plain(
 async def getflag_user_description_hmac(
     task: GetflagCheckerTaskMessage,
     db: ChainDB,
-    connection: Connection,
+    connection: UdpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     try:
@@ -470,7 +486,7 @@ async def getflag_user_description_hmac(
     except KeyError:
         raise MumbleException("Missing database entry from putflag")
 
-    received_description = await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
+    received_description = await get_user_description(connection, logger, clock_id, port, secret.encode("utf-8"), "hmac")
 
     if received_description is None:
         raise MumbleException("Received no USER_DESCRIPTION TLV")
@@ -481,7 +497,7 @@ async def getflag_user_description_hmac(
 async def getflag_user_description_plain(
     task: GetflagCheckerTaskMessage,
     db: ChainDB,
-    connection: Connection,
+    connection: UdpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     try:
@@ -497,13 +513,13 @@ async def getflag_user_description_plain(
 async def putnoise_sync(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
-    connection: Connection,
+    connection: WsConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
     secret = generate_secret(50)
 
-    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", bytes())
+    await create_clock(connection, logger, clock_id, port, secret, "hmac", "")
 
     await db.set("userdata", (clock_id, port, secret))
 
@@ -511,17 +527,17 @@ async def putnoise_sync(
 async def putnoise_user_description_twice(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
-    connection: Connection,
+    connection: WsConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
     secret = generate_secret(50)
     description = generate_secret(50)
 
-    await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", description.encode("utf-8"))
-    error = await claim_port(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", generate_secret(50).encode("utf-8"), True)
+    await create_clock(connection, logger, clock_id, port, secret, "hmac", description)
+    error = await create_clock(connection, logger, clock_id, port, secret, "hmac", generate_secret(50), True)
 
-    assert_equals(error, "Port already claimed", "Wrong error message")
+    assert_equals(error, "Failed to claim port", "Wrong error message")
 
     await db.set("userdata", (clock_id, port, secret, description))
 
@@ -529,7 +545,7 @@ async def putnoise_user_description_twice(
 async def getnoise_sync(
     task: GetnoiseCheckerTaskMessage,
     db: ChainDB,
-    connection: Connection,
+    connection: UdpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     try:
@@ -543,7 +559,7 @@ async def getnoise_sync(
 async def getnoise_user_description_twice(
     task: GetnoiseCheckerTaskMessage,
     db: ChainDB,
-    connection: Connection,
+    connection: UdpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     try:
@@ -557,7 +573,7 @@ async def getnoise_user_description_twice(
 @checker.havoc(0)
 async def havoc_malformed_port_id(
     task: HavocCheckerTaskMessage,
-    connection: Connection,
+    connection: UdpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id = 0xffffffffffffffff
@@ -569,7 +585,7 @@ async def havoc_malformed_port_id(
 @checker.havoc(1)
 async def havoc_get_time(
     task: HavocCheckerTaskMessage,
-    connection: Connection,
+    connection: UdpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
@@ -587,7 +603,7 @@ async def havoc_get_time(
 @checker.havoc(2)
 async def havoc_sync(
     task: HavocCheckerTaskMessage,
-    connection: Connection,
+    connection: UdpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
@@ -605,7 +621,7 @@ async def havoc_sync(
 @checker.exploit(0)
 async def exploit_memcmp(
     task: ExploitCheckerTaskMessage,
-    connection: Connection,
+    connection: UdpConnection,
     logger:LoggerAdapter
 ) -> typing.Optional[str]:
     if task.attack_info is None:
@@ -692,7 +708,7 @@ async def exploit_memcmp(
 @checker.exploit(1)
 async def exploit_zerolength(
     task: ExploitCheckerTaskMessage,
-    connection: Connection,
+    connection: UdpConnection,
     logger:LoggerAdapter
 ) -> typing.Optional[str]:
     if task.attack_info is None:
@@ -734,7 +750,7 @@ async def exploit_zerolength(
 @checker.exploit(2)
 async def exploit_replay(
     task: ExploitCheckerTaskMessage,
-    connection: Connection,
+    connection: UdpConnection,
     logger:LoggerAdapter
 ) -> typing.Optional[str]:
     if task.attack_info is None:
@@ -790,7 +806,7 @@ async def exploit_replay(
 @checker.exploit(3)
 async def exploit_timing(
     task: ExploitCheckerTaskMessage,
-    connection: Connection,
+    connection: UdpConnection,
     logger:LoggerAdapter
 ) -> typing.Optional[str]:
     if task.attack_info is None:
@@ -891,11 +907,11 @@ async def exploit_timing(
     sqrt_durations = [0]
 
     # Likely not as many iterations needed, but I don't want the CI to randomly fail
-    for _ in range(100):
+    for i in range(100):
         guess, sqrt_duration, received_flag = await guess_char(bytes(secret))
 
         if received_flag is not None:
-            logger.info(f"Received flag {received_flag}")
+            logger.info(f"Received flag {received_flag} after {i} iterations")
             return received_flag
         
         # Backtracking if we made an error due to noise

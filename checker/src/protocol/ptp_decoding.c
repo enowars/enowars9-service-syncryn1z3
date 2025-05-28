@@ -230,47 +230,6 @@ static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, 
             break;
         }
 
-        case PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM: {
-            struct ptp_encoded_management_tlv_port_claim *header = (struct ptp_encoded_management_tlv_port_claim *)head;
-            output->payload.port_claim.authentication_policy = (enum ptp_authentication_policy)header->authentication_policy;
-            head += sizeof(struct ptp_encoded_management_tlv_port_claim);
-
-            if (head > tlv_tail) {
-                return -EMSGSIZE;
-            }
-
-            struct ptp_encoded_text_header *string_header = (struct ptp_encoded_text_header *)head;
-            head += sizeof(*string_header);
-
-            if (string_header->length > PTP_PORT_SECRET_SIZE) {
-                return -EMSGSIZE;
-            }
-
-            if (head + string_header->length > tlv_tail) {
-                return -EMSGSIZE;
-            }
-
-            strncpy(output->payload.port_claim.port_secret, (char *)head, string_header->length);
-            output->payload.port_claim.port_secret[string_header->length] = '\0';
-            head += string_header->length;
-
-            string_header = (struct ptp_encoded_text_header *)head;
-            head += sizeof(*string_header);
-
-            if (string_header->length > PTP_USER_DESCRIPTION_SIZE) {
-                return -EMSGSIZE;
-            }
-
-            if (head + string_header->length > tlv_tail) {
-                return -EMSGSIZE;
-            }
-
-            strncpy(output->payload.port_claim.user_description, (char *)head, string_header->length);
-            output->payload.port_claim.user_description[string_header->length] = '\0';
-
-            break;
-        }
-
         default: {
             return -EINVAL;
         }

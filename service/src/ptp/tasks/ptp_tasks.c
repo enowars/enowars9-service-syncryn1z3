@@ -181,36 +181,6 @@ static int ptp_handle_management_time_get(struct ptp_state *state, struct common
     return 0;
 }
 
-static int ptp_handle_management_port_claim(struct ptp_state *state, struct common_transaction_info *transaction, struct ptp_decoded_tlv *request_tlv) {
-    int ret;
-    struct db_entry entry;
-    struct ptp_decoded_tlv *tlv;
-
-    entry.port_id.clock_id = transaction->request->message.payload.management.target_port_id.clock_id;
-    entry.port_id.port = transaction->request->message.payload.management.target_port_id.port;
-    entry.authentication_policy = request_tlv->payload.management.payload.port_claim.authentication_policy;
-    strncpy(entry.secret, request_tlv->payload.management.payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
-    strncpy(entry.user_description, request_tlv->payload.management.payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);
-
-    ret = db_set(state->config->db_state, &entry);
-    if (ret) {
-        return ptp_add_management_error_tlv(state, transaction, PTP_MANAGEMENT_ERROR_ID_NOT_SETABLE, PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM, "Port already claimed");
-    }
-
-    transaction->response->message.payload.management.action = PTP_MANAGEMENT_ACTION_ACKNOWLEDGE;
-
-    // Send values back
-    tlv = ptp_add_tlv(&transaction->response->message);
-    if (!tlv) {
-        return -EMSGSIZE;
-    }
-
-    tlv->type = PTP_TLV_TYPE_MANAGEMENT;
-    memcpy(&tlv->payload.management, &request_tlv->payload.management, sizeof(request_tlv->payload.management));
-    
-    return 0;
-}
-
 static int ptp_handle_tlv_request_unicast(struct ptp_state *state, struct common_transaction_info *transaction, struct ptp_decoded_tlv *request_tlv) {
     int ret;
     struct ptp_decoded_tlv *tlv;
@@ -263,14 +233,6 @@ static int ptp_handle_tlv_management(struct ptp_state *state, struct common_tran
         case PTP_MANAGEMENT_ID_TIME: {
             if (transaction->request->message.payload.management.action == PTP_MANAGEMENT_ACTION_GET) {
                 return ptp_handle_management_time_get(state, transaction, tlv);
-            }
-
-            break;
-        }
-
-        case PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM: {
-            if (transaction->request->message.payload.management.action == PTP_MANAGEMENT_ACTION_COMMAND) {
-                return ptp_handle_management_port_claim(state, transaction, tlv);
             }
 
             break;

@@ -243,60 +243,6 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
             break;
         }
 
-        case PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM: {
-            struct ptp_encoded_management_tlv_port_claim *header = (struct ptp_encoded_management_tlv_port_claim *)head;
-            head += sizeof(struct ptp_encoded_management_tlv_port_claim);
-
-            if (head > tail) {
-                return -EMSGSIZE;
-            }
-
-            header->authentication_policy = input->payload.port_claim.authentication_policy;
-
-            uint8_t *string_head = head;
-            int total_length = 0;
-
-            struct ptp_encoded_text_header *string_header = (struct ptp_encoded_text_header *)string_head;
-            string_head += sizeof(*string_header);
-
-            if (string_head > tail) {
-                return -EMSGSIZE;
-            }
-
-            string_header->length = strnlen(input->payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
-            string_header->length = string_header->length;
-            total_length += sizeof(*string_header) + string_header->length;
-
-            if (string_head + string_header->length > tail) {
-                return -EMSGSIZE;
-            }
-
-            memcpy((char *)string_head, input->payload.port_claim.port_secret, string_header->length);
-
-            string_head += string_header->length;
-
-            string_header = (struct ptp_encoded_text_header *)string_head;
-            string_head += sizeof(*string_header);
-
-            if (string_head > tail) {
-                return -EMSGSIZE;
-            }
-
-            string_header->length = strnlen(input->payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);
-            total_length += sizeof(*string_header) + string_header->length;
-            int actual_length = total_length + (total_length & 0x1); // Add padding to get 2-byte alignment
-
-            if (head + actual_length > tail) {
-                return -EMSGSIZE;
-            }
-
-            memcpy((char *)string_head, input->payload.port_claim.user_description, string_header->length);
-
-            head += total_length;
-
-            break;
-        }
-
         default: {
             return -EINVAL;
         }
