@@ -7,9 +7,9 @@
 
 #include <ptp/ptp.h>
 #include <ptp/ptp_helper.h>
-#include <ptp/port/ptp_port.h>
 #include <ptp/protocol/ptp_decoded.h>
 #include <ptp/security/ptp_security.h>
+#include <db/db.h>
 
 #define PTP_MAX_ICV_LENGTH 100
 #define PTP_HMAC_128_SIZE 16
@@ -64,7 +64,7 @@ end:
     return ret;
 }
 
-static inline int ptp_compute_icv_plain(struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+static inline int ptp_compute_icv_plain(struct ptp_decoded_authentication_tlv *tlv, struct db_entry *entry) {
     char *icv = (char *)tlv->icv;
 
     // Plaintext password
@@ -73,7 +73,7 @@ static inline int ptp_compute_icv_plain(struct ptp_decoded_authentication_tlv *t
     return strnlen(entry->secret, PTP_PORT_SECRET_SIZE);
 }
 
-static inline int ptp_compute_icv_hmac_128(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+static inline int ptp_compute_icv_hmac_128(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct db_entry *entry) {
     int ret;
 
     uint8_t *icv = tlv->icv;
@@ -91,7 +91,7 @@ static inline int ptp_compute_icv_hmac_128(struct common_message_info *info, str
     return PTP_HMAC_128_SIZE;
 }
 
-static int ptp_compute_icv(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+static int ptp_compute_icv(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct db_entry *entry) {
     switch (tlv->policy) {
         case PTP_AUTHENTICATION_POLICY_PLAIN: {
             return ptp_compute_icv_plain(tlv, entry);
@@ -107,7 +107,7 @@ static int ptp_compute_icv(struct common_message_info *info, struct ptp_decoded_
     }
 }
 
-static inline int ptp_check_icv_plain(struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+static inline int ptp_check_icv_plain(struct ptp_decoded_authentication_tlv *tlv, struct db_entry *entry) {
     int ret;
 
     char *icv = (char *)tlv->icv;
@@ -121,7 +121,7 @@ static inline int ptp_check_icv_plain(struct ptp_decoded_authentication_tlv *tlv
     return 0;
 }
 
-static inline int ptp_check_icv_hmac_128(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+static inline int ptp_check_icv_hmac_128(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct db_entry *entry) {
     int ret;
 
     uint8_t *icv = tlv->icv;
@@ -142,7 +142,7 @@ static inline int ptp_check_icv_hmac_128(struct common_message_info *info, struc
     return 0;
 }
 
-static int ptp_check_icv(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct ptp_port_entry *entry) {
+static int ptp_check_icv(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct db_entry *entry) {
     switch (tlv->policy) {
         case PTP_AUTHENTICATION_POLICY_PLAIN: {
             return ptp_check_icv_plain(tlv, entry);
@@ -161,8 +161,8 @@ static int ptp_check_icv(struct common_message_info *info, struct ptp_decoded_au
 int ptp_security_add_auth_tlv(struct ptp_state *state, struct common_message_info *info) {
     int ret;
 
-    struct ptp_port_entry *entry;
-    ret = ptp_port_db_get(&state->port_db, &entry, info->message.port_id);
+    struct db_entry *entry;
+    ret = db_get(state->config->db_state, &entry, info->message.port_id);
     if (ret) {
         return ret;
     }
@@ -202,8 +202,8 @@ int ptp_security_complete_auth_tlvs(struct ptp_state *state, struct common_messa
             continue;
         }
 
-        struct ptp_port_entry *entry;
-        ret = ptp_port_db_get(&state->port_db, &entry, info->message.port_id);
+        struct db_entry *entry;
+        ret = db_get(state->config->db_state, &entry, info->message.port_id);
         if (ret) {
             return ret;
         }
@@ -225,8 +225,8 @@ int ptp_security_check_auth(struct ptp_state *state, struct common_message_info 
         return 0;
     }
 
-    struct ptp_port_entry *entry;
-    ret = ptp_port_db_get(&state->port_db, &entry, port_id);
+    struct db_entry *entry;
+    ret = db_get(state->config->db_state, &entry, port_id);
     if (ret) {
         return ret;
     }

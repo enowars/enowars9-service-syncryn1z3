@@ -8,4 +8,4 @@ file(GLOB HEADERS *.h)
 add_library(ptp-security ${SOURCES} ${HEADERS})
 
 target_include_directories(ptp-security PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(ptp-security PRIVATE OpenSSL::Crypto ptp-port)
+target_link_libraries(ptp-security PRIVATE OpenSSL::Crypto db)

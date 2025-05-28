@@ -5,10 +5,12 @@
 
 #include <ptp/ptp.h>
 #include <ptp/ptp_defaults.h>
+#include <db/db.h>
 #include <socket/socket.h>
 #include <ws/ws.h>
 
 struct main_config {
+    struct db_config db;
     struct ptp_config ptp;
     struct socket_config socket;
     struct ws_config ws;
@@ -17,6 +19,7 @@ struct main_config {
 struct main_state {
     struct main_config config;
 
+    struct db_state db;
     struct ptp_state ptp;
     struct socket_state socket;
     struct ws_state ws;
@@ -44,12 +47,13 @@ int main(int argc, char *argv[]) {
 
     state.loop = uv_default_loop();
 
+    state.config.db.filename = "/data/db.sqlite";
+
+    state.config.ptp.db_state = &state.db;
     state.config.ptp.clock_priority = 0;
     state.config.ptp.clock_quality.clock_class = PTP_CLOCK_CLASS_APPLICATION_SPECIFIC;
     state.config.ptp.clock_quality.clock_accuracy = PTP_CLOCK_ACCURACY_10_US;
     state.config.ptp.clock_quality.offset_scaled_log_variance = 0; // TODO: Fix
-
-    state.config.ptp.port_db_filename = "/data/ports.db";
 
     state.config.socket.loop = state.loop;
     state.config.socket.event_port = ptp_default_event_port;
@@ -62,6 +66,11 @@ int main(int argc, char *argv[]) {
     state.config.ws.port = 8080;
 
     printf("Starting PTP master\n");
+
+    ret = db_setup(&state.db, &state.config.db);
+    if (ret) {
+        return -ret;
+    }
 
     ret = ptp_setup(&state.ptp, &state.config.ptp);
     if (ret) {
@@ -96,6 +105,11 @@ int main(int argc, char *argv[]) {
     }
 
     ret = ptp_cleanup(&state.ptp);
+    if (ret) {
+        return -ret;
+    }
+
+    ret = db_cleanup(&state.db);
     if (ret) {
         return -ret;
     }

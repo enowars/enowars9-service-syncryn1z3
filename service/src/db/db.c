@@ -7,16 +7,16 @@
 
 #include <sqlite3.h>
 
-#include <ptp/port/ptp_port.h>
+#include <db/db.h>
 #include <ptp/ptp_helper.h>
 
-#define PTP_PORT_DB_CACHE_SIZE 256
+#define DB_CACHE_SIZE 256
 
-static inline int ptp_port_db_hash(struct ptp_decoded_port_id port_id) {
-    return (port_id.clock_id + port_id.port) % PTP_PORT_DB_CACHE_SIZE;
+static inline int db_hash(struct ptp_decoded_port_id port_id) {
+    return (port_id.clock_id + port_id.port) % DB_CACHE_SIZE;
 }
 
-static inline int ptp_port_db_valid(struct ptp_decoded_port_id port_id) {
+static inline int db_valid(struct ptp_decoded_port_id port_id) {
     // Only allow locally administered OUI range
     if (((port_id.clock_id >> 56) & 0xff) != 0x02) {
         return -EINVAL;
@@ -30,18 +30,18 @@ static inline int ptp_port_db_valid(struct ptp_decoded_port_id port_id) {
     return 0;
 }
 
-int ptp_port_db_setup(struct ptp_port_db *db, const char *filename) {
+int db_setup(struct db_state *state, struct db_config *config) {
     int ret;
     char *error_message;
 
-    ret = sqlite3_open(filename, &db->handle);
+    ret = sqlite3_open(config->filename, &state->handle);
     if (ret != SQLITE_OK) {
-        fprintf(stderr, "Failed to open database: %s\n", sqlite3_errmsg(db->handle));
+        fprintf(stderr, "Failed to open database: %s\n", sqlite3_errmsg(state->handle));
         return -1;
     }
 
     const char *pragma_query = "PRAGMA journal_mode=WAL;";
-    ret = sqlite3_exec(db->handle, pragma_query, 0, 0, &error_message);
+    ret = sqlite3_exec(state->handle, pragma_query, 0, 0, &error_message);
     if (ret != SQLITE_OK) {
         fprintf(stderr, "SQL error: %s\n", error_message);
         sqlite3_free(error_message);
@@ -52,45 +52,45 @@ int ptp_port_db_setup(struct ptp_port_db *db, const char *filename) {
         "CREATE TABLE IF NOT EXISTS\n"
         "ports(clock_id INTEGER NOT NULL, port INTEGER NOT NULL, authentication_policy INTEGER, secret TEXT, user_description TEXT, UNIQUE(clock_id, port));";
 
-    ret = sqlite3_exec(db->handle, create_query, 0, 0, &error_message);
+    ret = sqlite3_exec(state->handle, create_query, 0, 0, &error_message);
     if (ret != SQLITE_OK) {
         fprintf(stderr, "SQL error: %s\n", error_message);
         sqlite3_free(error_message);
         return -1;
     }
 
-    db->cache = calloc(PTP_PORT_DB_CACHE_SIZE, sizeof(struct ptp_port_entry));
-    if (!db->cache) {
+    state->cache = calloc(DB_CACHE_SIZE, sizeof(struct db_entry));
+    if (!state->cache) {
         return -ENOMEM;
     }
 
     return 0;
 }
 
-int ptp_port_db_cleanup(struct ptp_port_db *db) {
+int db_cleanup(struct db_state *state) {
     int ret;
     
-    ret = sqlite3_close(db->handle);
+    ret = sqlite3_close(state->handle);
     if (ret != SQLITE_OK) {
         return -1;
     }
 
-    free(db->cache);
+    free(state->cache);
 
     return 0;
 }
 
-int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry **entry, struct ptp_decoded_port_id port_id) {
+int db_get(struct db_state *state, struct db_entry **entry, struct ptp_decoded_port_id port_id) {
     int ret;
     char *error_message;
     sqlite3_stmt *statement;
 
-    ret = ptp_port_db_valid(port_id);
+    ret = db_valid(port_id);
     if (ret) {
         return ret;
     }
 
-    *entry = &db->cache[ptp_port_db_hash(port_id)];
+    *entry = &state->cache[db_hash(port_id)];
     if (!ptp_compare_port_id((*entry)->port_id, port_id)) {
         return 0;
     }
@@ -99,9 +99,9 @@ int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry **entry, struc
         "SELECT authentication_policy, secret, user_description FROM ports\n"
         "WHERE (clock_id==? AND port==?);";
 
-    ret = sqlite3_prepare_v2(db->handle, select_query, -1, &statement, 0);
+    ret = sqlite3_prepare_v2(state->handle, select_query, -1, &statement, 0);
     if (ret != SQLITE_OK) {
-        fprintf(stderr, "Failed to prepare statement: %s\n", sqlite3_errmsg(db->handle));
+        fprintf(stderr, "Failed to prepare statement: %s\n", sqlite3_errmsg(state->handle));
         return -1;
     }
 
@@ -114,7 +114,7 @@ int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry **entry, struc
             (*entry)->active = false;
             ret = 0;
         } else {
-            fprintf(stderr, "Execution failed: %s\n", sqlite3_errmsg(db->handle));
+            fprintf(stderr, "Execution failed: %s\n", sqlite3_errmsg(state->handle));
             ret = -1;
         }
 
@@ -130,7 +130,7 @@ int ptp_port_db_get(struct ptp_port_db *db, struct ptp_port_entry **entry, struc
 
     ret = sqlite3_step(statement);
     if (ret != SQLITE_DONE) {
-        fprintf(stderr, "Execution failed: %s\n", sqlite3_errmsg(db->handle));
+        fprintf(stderr, "Execution failed: %s\n", sqlite3_errmsg(state->handle));
         ret = -1;
         goto out;
     }
@@ -143,27 +143,27 @@ out:
     return ret;
 }
 
-int ptp_port_db_set(struct ptp_port_db *db, struct ptp_port_entry *entry) {
+int db_set(struct db_state *state, struct db_entry *entry) {
     int ret;
     char *error_message;
     sqlite3_stmt *statement;
 
-    ret = ptp_port_db_valid(entry->port_id);
+    ret = db_valid(entry->port_id);
     if (ret) {
         return ret;
     }
 
     // Invalidate cache
-    db->cache[ptp_port_db_hash(entry->port_id)].port_id.port = 0;
+    state->cache[db_hash(entry->port_id)].port_id.port = 0;
 
     if (entry->active) {
         const char *insert_query =
             "INSERT INTO ports(clock_id, port, authentication_policy, secret, user_description)\n"
             "VALUES (?, ?, ?, ?, ?);";
 
-        ret = sqlite3_prepare_v2(db->handle, insert_query, -1, &statement, 0);
+        ret = sqlite3_prepare_v2(state->handle, insert_query, -1, &statement, 0);
         if (ret != SQLITE_OK) {
-            fprintf(stderr, "Failed to prepare statement: %s\n", sqlite3_errmsg(db->handle));
+            fprintf(stderr, "Failed to prepare statement: %s\n", sqlite3_errmsg(state->handle));
             return -1;
         }
 
@@ -177,9 +177,9 @@ int ptp_port_db_set(struct ptp_port_db *db, struct ptp_port_entry *entry) {
             "DELETE FROM ports\n"
             "WHERE (clock_id==? AND port==?);";
 
-        ret = sqlite3_prepare_v2(db->handle, delete_query, -1, &statement, 0);
+        ret = sqlite3_prepare_v2(state->handle, delete_query, -1, &statement, 0);
         if (ret != SQLITE_OK) {
-            fprintf(stderr, "Failed to prepare statement: %s\n", sqlite3_errmsg(db->handle));
+            fprintf(stderr, "Failed to prepare statement: %s\n", sqlite3_errmsg(state->handle));
             return -1;
         }
 
@@ -189,7 +189,7 @@ int ptp_port_db_set(struct ptp_port_db *db, struct ptp_port_entry *entry) {
 
     ret = sqlite3_step(statement);
     if (ret != SQLITE_DONE) {
-        fprintf(stderr, "Execution failed: %s\n", sqlite3_errmsg(db->handle));
+        fprintf(stderr, "Execution failed: %s\n", sqlite3_errmsg(state->handle));
         ret = -1;
         goto out;
     }

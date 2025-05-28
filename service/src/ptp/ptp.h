@@ -6,16 +6,16 @@
 
 #include <ptp/protocol/ptp_protocol.h>
 #include <ptp/tasks/ptp_tasks.h>
-#include <ptp/port/ptp_port.h>
 #include <common/common_types.h>
+#include <db/db.h>
 #include <util/ring.h>
 #include <util/mempool.h>
 
 struct ptp_config {
+    struct db_state *db_state;
+
     uint16_t clock_priority;
     struct ptp_decoded_clock_quality clock_quality;
-
-    const char *port_db_filename;
 };
 
 struct ptp_state {
@@ -26,7 +26,7 @@ struct ptp_state {
 
     struct util_mempool mempool;
 
-    struct ptp_port_db port_db;
+    
 };
 
 int ptp_setup(struct ptp_state *state, struct ptp_config *config);

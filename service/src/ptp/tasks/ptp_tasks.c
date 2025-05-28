@@ -10,8 +10,8 @@
 #include <ptp/protocol/ptp_constants.h>
 #include <ptp/protocol/ptp_protocol.h>
 #include <ptp/security/ptp_security.h>
-#include <ptp/port/ptp_port.h>
 #include <ptp/tasks/ptp_tasks.h>
+#include <db/db.h>
 #include <common/common_types.h>
 #include <util/time.h>
 #include <util/mempool.h>
@@ -134,11 +134,11 @@ static inline int ptp_add_management_error_message(struct ptp_state *state, stru
 
 static int ptp_handle_management_user_description_get(struct ptp_state *state, struct common_transaction_info *transaction, struct ptp_decoded_tlv *request_tlv) {
     int ret;
-    struct ptp_port_entry *entry;
+    struct db_entry *entry;
     struct common_message_info *response;
     struct ptp_decoded_tlv *tlv;
 
-    ret = ptp_port_db_get(&state->port_db, &entry, transaction->request->message.payload.management.target_port_id);
+    ret = db_get(state->config->db_state, &entry, transaction->request->message.payload.management.target_port_id);
     if (ret) {
         return ptp_add_management_error_tlv(state, transaction, PTP_MANAGEMENT_ERROR_ID_UNPOPULATED, PTP_MANAGEMENT_ID_USER_DESCRIPTION, "No such port");
     }
@@ -163,7 +163,7 @@ static int ptp_handle_management_user_description_get(struct ptp_state *state, s
 }
 
 static int ptp_handle_management_time_get(struct ptp_state *state, struct common_transaction_info *transaction, struct ptp_decoded_tlv *request_tlv) {
-    struct ptp_port_entry *entry;
+    struct db_entry *entry;
     struct ptp_decoded_tlv *tlv;
 
     transaction->response->message.payload.management.action = PTP_MANAGEMENT_ACTION_RESPONSE;
@@ -183,7 +183,7 @@ static int ptp_handle_management_time_get(struct ptp_state *state, struct common
 
 static int ptp_handle_management_port_claim(struct ptp_state *state, struct common_transaction_info *transaction, struct ptp_decoded_tlv *request_tlv) {
     int ret;
-    struct ptp_port_entry entry;
+    struct db_entry entry;
     struct ptp_decoded_tlv *tlv;
 
     entry.port_id.clock_id = transaction->request->message.payload.management.target_port_id.clock_id;
@@ -193,7 +193,7 @@ static int ptp_handle_management_port_claim(struct ptp_state *state, struct comm
     strncpy(entry.secret, request_tlv->payload.management.payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
     strncpy(entry.user_description, request_tlv->payload.management.payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);
 
-    ret = ptp_port_db_set(&state->port_db, &entry);
+    ret = db_set(state->config->db_state, &entry);
     if (ret) {
         return ptp_add_management_error_tlv(state, transaction, PTP_MANAGEMENT_ERROR_ID_NOT_SETABLE, PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM, "Port already claimed");
     }
