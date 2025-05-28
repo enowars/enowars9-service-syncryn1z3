@@ -79,7 +79,7 @@ static int ptp_add_management_error_tlv_va(struct ptp_state *state, struct commo
     tlv->payload.management_error_status.error_id = error_id;
     tlv->payload.management_error_status.id = id;
 
-    ret = vsnprintf(tlv->payload.management_error_status.display_data, PTP_USER_DESCRIPTION_SIZE, format, va_args);
+    ret = vsnprintf(tlv->payload.management_error_status.display_data, PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE, format, va_args);
     if (ret < 0) {
         return ret;
     }
@@ -188,7 +188,6 @@ static int ptp_handle_management_port_claim(struct ptp_state *state, struct comm
 
     entry.port_id.clock_id = transaction->request->message.payload.management.target_port_id.clock_id;
     entry.port_id.port = transaction->request->message.payload.management.target_port_id.port;
-    entry.active = true;
     entry.authentication_policy = request_tlv->payload.management.payload.port_claim.authentication_policy;
     strncpy(entry.secret, request_tlv->payload.management.payload.port_claim.port_secret, PTP_PORT_SECRET_SIZE);
     strncpy(entry.user_description, request_tlv->payload.management.payload.port_claim.user_description, PTP_USER_DESCRIPTION_SIZE);

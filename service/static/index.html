@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>syncryn1z3</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="stylesheet" href="main.css">
+    <script src="main.js"></script>
+</head>
+
+<body>
+    <header>
+        <h1>syncryn1z3</h1>
+        <h2>mostly compliant with IEEE 1588</h2>
+    </header>
+
+    <div class="container">
+        <div id="notification-bar">Status</div>
+    </div>
+
+    <div class="container">
+        <div class="form-row">
+            <div class="input-box" id="claim-box">
+                <h2>Claim Port</h2>
+                <span class="input-span">
+                    <input type="text" id="claimClockId" placeholder="Clock ID" maxlength="16">
+                    <input type="text" id="claimPort" placeholder="Port" maxlength="4">
+                </span>
+                <input type="text" id="claimUserDescription" placeholder="User description" maxlength="128">
+                <input type="password" id="claimSecret" placeholder="Secret" maxlength="100">
+                <button onclick="claimPort()">Claim</button>
+            </div>
+
+            <div class="input-box" id="inspect-box">
+                <h2>Inspect Port</h2>
+                <span class="input-span">
+                    <input type="text" id="inspectClockId" placeholder="Clock ID" maxlength="16">
+                    <input type="text" id="inspectPort" placeholder="Port" maxlength="4">
+                </span>
+                <input type="password" id="inspectSecret" placeholder="Secret" maxlength="100">
+                <button onclick="inspectPort()">Inspect</button>
+
+                <hr>
+
+                <div>
+                    <span>Authenticate to inspect port</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="port-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Clock ID</th>
+                        <th>Port</th>
+                        <th>Type</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody id="portTable"></tbody>
+            </table>
+        </div>
+    </div>
+</body>
+
+</html>

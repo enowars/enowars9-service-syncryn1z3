@@ -7,5 +7,4 @@ file(GLOB HEADERS *.h)
 
 add_library(db ${SOURCES} ${HEADERS})
 
-target_include_directories(db PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(db PRIVATE SQLite::SQLite3)

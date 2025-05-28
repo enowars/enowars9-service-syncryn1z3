@@ -62,6 +62,7 @@ int main(int argc, char *argv[]) {
     state.config.socket.dequeue_callback = ptp_dequeue_message;
     state.config.socket.user_ptr = &state.ptp;
 
+    state.config.ws.db_state = &state.db;
     state.config.ws.loop = state.loop;
     state.config.ws.port = 8080;
 
