@@ -6,3 +6,4 @@ gunicorn
 faker
 cffi
 fake_useragent
+python-lorem

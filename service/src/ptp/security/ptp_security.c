@@ -136,7 +136,7 @@ static inline int ptp_check_icv_hmac_128(struct common_message_info *info, struc
     // Compare 128 bits
     ret = memcmp(icv, icv_temp, tlv->icv_length); // Vulnerability: zero length comparisson
     if (ret) {
-        return ret; //-EPERM; TODO: move vuln into web interface
+        return -EPERM;
     }
 
     return 0;

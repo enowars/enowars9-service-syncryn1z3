@@ -13,6 +13,7 @@ struct db_entry {
     struct ptp_decoded_port_id port_id;
 
     bool valid;
+    bool visible;
 
     enum ptp_authentication_policy authentication_policy;
     char secret[DB_SECRET_SIZE];

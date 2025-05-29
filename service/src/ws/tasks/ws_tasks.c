@@ -88,7 +88,7 @@ int ws_handle_task_get_clocks(struct ws_state *state, struct ws_message *request
 
     ret = db_get_recent(state->config->db_state, entries, length);
     if (ret) {
-        return ws_send_error(request, ret, "Failed to get page");
+        return ws_send_error(request, ret, "Failed to get clocks from database");
     }
 
     cJSON *response_json = cJSON_CreateObject();
@@ -177,12 +177,16 @@ int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_message *requ
 
     ret = db_get(state->config->db_state, &entry, port_id);
     if (ret) {
-        return ws_send_error(request, ret, "Failed to get port");
+        return ws_send_error(request, ret, "Failed to get clock from database");
+    }
+
+    if (!entry->visible) {
+        return ws_send_error(request, ret, "Invisible clock");
     }
 
     ret = strncmp(entry->secret, secret_json->valuestring, DB_SECRET_SIZE);
     if (ret) {
-        return ws_send_error(request, ret, "Wrong secret");
+        return ws_send_error(request, ret, "Wrong secret"); // Vuln: return value gets leaked
     }
 
     cJSON *response_json = cJSON_CreateObject();
@@ -246,16 +250,18 @@ int ws_handle_task_create_clock(struct ws_state *state, struct ws_message *reque
     cJSON *clock_id_json = cJSON_GetObjectItemCaseSensitive(request_json, "clockId");
     cJSON *port_json = cJSON_GetObjectItemCaseSensitive(request_json, "port");
     cJSON *authentication_policy_json = cJSON_GetObjectItemCaseSensitive(request_json, "authenticationPolicy");
+    cJSON *visible_json = cJSON_GetObjectItemCaseSensitive(request_json, "visible");
     cJSON *secret_json = cJSON_GetObjectItemCaseSensitive(request_json, "secret");
     cJSON *user_description_json = cJSON_GetObjectItemCaseSensitive(request_json, "userDescription");
 
-    if (!cJSON_IsString(clock_id_json) || !cJSON_IsString(port_json) || !cJSON_IsString(authentication_policy_json) || !cJSON_IsString(secret_json) || !cJSON_IsString(user_description_json)) {
+    if (!cJSON_IsString(clock_id_json) || !cJSON_IsString(port_json) || !cJSON_IsString(authentication_policy_json) || !cJSON_IsBool(visible_json) || !cJSON_IsString(secret_json) || !cJSON_IsString(user_description_json)) {
         return ws_send_error(request, EINVAL, "Missing value");
     }
 
     struct db_entry entry;
     entry.port_id.clock_id = strtoul(clock_id_json->valuestring, NULL, 16);
     entry.port_id.port = strtoul(port_json->valuestring, NULL, 16);
+    entry.visible = cJSON_IsTrue(visible_json);
     strncpy(entry.secret, secret_json->valuestring, DB_SECRET_SIZE);
     strncpy(entry.user_description, user_description_json->valuestring, DB_USER_DESCRIPTION_SIZE);
 
@@ -269,7 +275,7 @@ int ws_handle_task_create_clock(struct ws_state *state, struct ws_message *reque
 
     ret = db_set(state->config->db_state, &entry);
     if (ret) {
-        return ws_send_error(request, ret, "Failed to claim port");
+        return ws_send_error(request, ret, "Failed to create clock in database");
     }
 
     cJSON *response_json = cJSON_CreateObject();
