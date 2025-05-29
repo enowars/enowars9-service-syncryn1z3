@@ -83,7 +83,6 @@ static struct ptp_decoded_tlv *ptp_add_tlv(struct ptp_decoded_message *message) 
     return result;
 }
 
-// TODO: move to web interface
 static inline enum ptp_management_error_id ptp_management_error_id(int error) {
     // Correctly handle negative return codes
     if (error < 0) {

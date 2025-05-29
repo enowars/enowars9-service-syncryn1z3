@@ -44,6 +44,8 @@ function createClock() {
     const clockId = document.getElementById("createClockId").value;
     const port = document.getElementById("createPort").value;
     const userDescription = document.getElementById("createUserDescription").value;
+    const authenticationPolicy = document.getElementById("createAuthenticationPolicy").value;
+    const visible = document.getElementById("createVisible").value == "visible";
     const secret = document.getElementById("createSecret").value;
 
     if (!clockId || !port) {
@@ -52,7 +54,7 @@ function createClock() {
     }
 
     // TODO: support other auth methods
-    const message = JSON.stringify({ task: "create_clock", clockId: clockId, port: port, visible: true, authenticationPolicy: "hmac", userDescription: userDescription, secret: secret});
+    const message = JSON.stringify({ task: "create_clock", clockId: clockId, port: port, visible: visible, authenticationPolicy: authenticationPolicy, userDescription: userDescription, secret: secret});
     sendMessage(message);
 }
 
@@ -110,7 +112,7 @@ function handleResponseInspectClock(response) {
     }
 
     addRow("User description", response.userDescription);
-    addRow("Authentication policy", response.authenticationPolicy);
+    addRow("Authentication policy", (response.authenticationPolicy == "hmac") ? "HMAC" : "Plaintext (legacy)");
 }
 
 function handleResponseCreateClock(response) {

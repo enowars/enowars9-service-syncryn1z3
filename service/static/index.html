@@ -28,9 +28,27 @@
                 <input type="text" id="createClockId" placeholder="Clock ID" maxlength="16">
                 <input type="text" id="createPort" placeholder="Port" maxlength="4">
             </span>
+            
             <input type="text" id="createUserDescription" placeholder="User description" maxlength="128">
+
             <input type="password" id="createSecret" placeholder="Secret" maxlength="100">
-            <button onclick="createClock()">create</button>
+            
+            <span class="input-span">
+                <label for="createAuthenticationPolicy">Authentication</label>
+                <select id="createAuthenticationPolicy">
+                    <option value="hmac">HMAC</option>
+                    <option value="plain">Plaintext (legacy)</option>
+                </select>
+            </span>
+
+            <span class="input-span">
+                <label for="createVisible">Visibility</label>
+                <select id="createVisible">
+                    <option value="visible">visible</option>
+                    <option value="hidden">hidden (no web access)</option>
+                </select>
+            </span>
+            <button onclick="createClock()">Create</button>
         </div>
 
         <div class="input-box" id="inspect-box">
@@ -39,13 +57,15 @@
                 <input type="text" id="inspectClockId" placeholder="Clock ID" maxlength="16">
                 <input type="text" id="inspectPort" placeholder="Port" maxlength="4">
             </span>
+
             <input type="password" id="inspectSecret" placeholder="Secret" maxlength="100">
+            
             <button onclick="inspectClock()">Inspect</button>
 
             <hr>
 
             <div class="inspect-results">
-                <span id="inspectPlaceholder">Authenticate to inspect port</span>
+                <span id="inspectPlaceholder">Authenticate to inspect clock</span>
                 <div id="inspectList" style="display: none;"></div>
             </div>
         </div>
