@@ -29,6 +29,13 @@ function inspectClock() {
         return;
     }
 
+    const placeholder = document.getElementById("inspectPlaceholder");
+    placeholder.style.display = "block";
+
+    const list = document.getElementById("inspectList");
+    list.style.display = "none";
+    list.innerHTML = "";
+
     const message = JSON.stringify({ task: "inspect_clock", clockId: clockId, port: port, secret: secret});
     sendMessage(message);
 }
@@ -44,7 +51,8 @@ function createClock() {
         return;
     }
 
-    const message = JSON.stringify({ task: "create_clock", clockId: clockId, port: port, authenticationPolicy: "hmac128", userDescription: userDescription, secret: secret});
+    // TODO: support other auth methods
+    const message = JSON.stringify({ task: "create_clock", clockId: clockId, port: port, visible: true, authenticationPolicy: "hmac", userDescription: userDescription, secret: secret});
     sendMessage(message);
 }
 
