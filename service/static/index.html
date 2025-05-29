@@ -22,7 +22,7 @@
     </div>
 
     <div class="main-container">
-        <div class="input-box" id="create-box">
+        <div class="box" id="create-box">
             <h2>Create Clock</h2>
             <span class="input-span">
                 <input type="text" id="createClockId" placeholder="Clock ID" maxlength="16">
@@ -51,7 +51,7 @@
             <button onclick="createClock()">Create</button>
         </div>
 
-        <div class="input-box" id="inspect-box">
+        <div class="box" id="inspect-box">
             <h2>Inspect Clock</h2>
             <span class="input-span">
                 <input type="text" id="inspectClockId" placeholder="Clock ID" maxlength="16">
@@ -70,16 +70,19 @@
             </div>
         </div>
 
-        <div class="clock-results">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Clock ID</th>
-                        <th>Port</th>
-                    </tr>
-                </thead>
-                <tbody id="clockTable"></tbody>
-            </table>
+        <div class="box" id="inspect-box">
+            <h2>Recent Clocks</h2>
+            <div class="clock-results">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Port ID</th>
+                            <th>Command</th>
+                        </tr>
+                    </thead>
+                    <tbody id="clockTable"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 </body>

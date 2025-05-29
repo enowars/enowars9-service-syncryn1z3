@@ -69,10 +69,10 @@ def generate_timestamp():
     return random.randint(0x0, 0xffffffffffffffff)
 
 def encode_port_id(clock_id: int, port: int):
-    return f"{clock_id:x}:{port:x}"
+    return f"{clock_id:x}/{port:x}"
 
 def decode_port_id(port_id: str):
-    parts = port_id.split(":")
+    parts = port_id.split("/")
     
     return int(parts[0], 16), int(parts[1], 16)
 

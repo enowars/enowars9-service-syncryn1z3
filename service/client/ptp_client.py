@@ -102,39 +102,6 @@ def finalize_auth_tlvs(request, secret=b""):
     for tlv in message.get_tlvs():
         finalize_auth_tlv(tlv, request, secret)
 
-async def claim_port(connection: Connection, clock_id: int, port: int, secret: str, description: str):
-    secret = secret.encode("utf-8")
-    description = description.encode("utf-8")
-
-    if (len(secret) > 100):
-        raise PtpException("Secret too large")
-
-    if (len(description) > 128):
-        raise PtpException("User description too large")
-    
-    local_clock_id, local_port = generate_port_id()
-    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
-
-    payload = message.get_payload()
-    payload.management.target_port_id.clock_id = clock_id
-    payload.management.target_port_id.port = port
-    payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_COMMAND
-    payload.management.starting_boundary_hops = 0
-    payload.management.boundary_hops = 0
-
-    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
-    tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_IMPLEMENTATION_SPECIFIC_PORT_CLAIM
-    tlv.payload.management.payload.port_claim.authentication_policy = ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_HMAC_128
-    ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.port_secret, secret + b'\0', len(secret) + 1)
-    ptp_protocol.ffi.memmove(tlv.payload.management.payload.port_claim.user_description, description + b'\0', len(description) + 1)
-
-    connection.send(message, GENERAL_PORT)
-    response = await connection.receive(GENERAL_PORT)
-
-    for tlv in response.get_tlvs():
-        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
-            raise PtpException(f"Received error from server: {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
-
 async def get_user_description(connection: Connection, clock_id: int, port: int, secret: str):
     secret = secret.encode("utf-8")
     secret = secret + b'\x00' * (100 - len(secret))
@@ -228,23 +195,22 @@ async def run_synchronization(connection: Connection, clock_id: int, port: int, 
     print("Time: {:.3f}, Offset: {:.3f}us".format(get_time_ns() / 1000000000, offset / 1000))
 
 def parse_args():
-    def auto_int(x):
-        return int(x, 0)
+    def hex_int(x):
+        return int(x, 16)
 
     parser = argparse.ArgumentParser(description="syncryn1z3 ptp client")
 
     parser.add_argument("address", type=str, help="IP address of the server")
-    parser.add_argument("clock_id", type=auto_int, help="Clock ID registered in the server")
-    parser.add_argument("port", type=auto_int, help="Port registered in the server")
+    parser.add_argument("clock_id", type=hex_int, help="Clock ID registered in the server")
+    parser.add_argument("port", type=hex_int, help="Port registered in the server")
     parser.add_argument("--secret", type=str, default="", help="Password to secure the remote port")
     parser.add_argument("--description", type=str, default="", help="Description of the remote port")
-    parser.add_argument("--syncs", type=int, default=0, help="Number of syncs to perform")
+    parser.add_argument("--syncs", type=int, default=5, help="Number of syncs to perform")
     parser.add_argument("--interval", type=float, default=1, help="Interval in sec between syncs")
-    parser.add_argument("--claim", action="store_true", help="Claim the remote port and exit")
 
     args = parser.parse_args()
 
-    if args.clock_id < 0x0200000000000001 or args.clock_id > 0x02ffffffffffffff:
+    if args.clock_id < 0x1 or args.clock_id > 0xfffffffffffffffe:
         raise PtpException("Clock ID out of range")
     if args.port < 1 or args.port >= 0xffff:
         raise PtpException("Port out of range")
@@ -261,13 +227,9 @@ async def main():
 
     connection = await create_connections(args)
 
-    if args.claim:
-        await claim_port(connection, args.clock_id, args.port, args.secret, args.description)
-        print("Port claimed")
-        return
-    else:
-        description = await get_user_description(connection, args.clock_id, args.port, args.secret)
-        print(f"Connected to port: {description}")
+    description = await get_user_description(connection, args.clock_id, args.port, args.secret)
+    print(f"Connected to clock: {args.clock_id:x}/{args.port:x}")
+    print(f"Description: {description}")
 
     for _ in range(args.syncs):
         await run_synchronization(connection, args.clock_id, args.port, args.secret)

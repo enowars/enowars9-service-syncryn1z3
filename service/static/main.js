@@ -68,17 +68,21 @@ function handleResponseGetClocks(response) {
             const inputClockId = document.getElementById("inspectClockId");
             const inputPort = document.getElementById("inspectPort");
 
-            inputClockId.value = row.childNodes[0].textContent;
-            inputPort.value = row.childNodes[1].textContent;
+            const port_id = row.childNodes[0].textContent.split("/");
+
+            inputClockId.value = port_id[0];
+            inputPort.value = port_id[1];
         }); 
 
-        const tdClockId = document.createElement("td");
-        tdClockId.textContent = port.clockId;
-        row.appendChild(tdClockId);
+        const tdPortId = document.createElement("td");
+        tdPortId.textContent = port.clockId + "/" + port.port;
+        row.appendChild(tdPortId);
 
-        const tdPort = document.createElement("td");
-        tdPort.textContent = port.port;
-        row.appendChild(tdPort);
+        const tdCommand = document.createElement("td");
+        const codeCommand = document.createElement("code");
+        codeCommand.textContent = "python ptp_client.py " + window.location.hostname + " " + port.clockId + " " + port.port + " --secret [SECRET]" ;
+        tdCommand.appendChild(codeCommand)
+        row.appendChild(tdCommand);
 
         table.appendChild(row);
     }
