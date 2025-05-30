@@ -14,56 +14,6 @@
 #define PTP_MAX_ICV_LENGTH 100
 #define PTP_HMAC_128_SIZE 16
 
-// TODO: move this into libc
-static inline __attribute__((always_inline)) uint64_t get_time() {
-    int ret;
-    struct timespec now;
-
-    ret = clock_gettime(CLOCK_MONOTONIC, &now);
-
-    return now.tv_sec * 1000000000 + now.tv_nsec;
-}
-
-// TODO: move this into libc
-static int custom_strncpy(const char *a, const char *b, unsigned int len) {
-    int i;
-    int ret;
-
-    //printf("test %d, %hhx %hhx\n", len, *pa, *pb);
-
-    uint64_t start_time = get_time();
-    
-    for (i = 0; i < len; ++i) {
-        ret = (int)*a - (int)*b;
-
-        if (ret) {
-            goto end;
-        }
-
-        if (*a == '\0' || *b == '\0') {
-            goto end;
-        }
-
-        ++a;
-        ++b;
-    }
-
-    ret = 0;
-
-end:
-    uint64_t target_time = start_time + i * 2500;
-
-    while (true) {
-        uint64_t current_time = get_time();
-
-        if (current_time >= target_time) {
-            break;
-        }
-    }
-
-    return ret;
-}
-
 static inline int ptp_compute_icv_plain(struct ptp_decoded_authentication_tlv *tlv, struct db_entry *entry) {
     char *icv = (char *)tlv->icv;
 
@@ -113,7 +63,7 @@ static inline int ptp_check_icv_plain(struct ptp_decoded_authentication_tlv *tlv
     char *icv = (char *)tlv->icv;
 
     // Compare plaintext password
-    ret = custom_strncpy((char *)icv, entry->secret, PTP_MAX_ICV_LENGTH);
+    ret = strncmp((char *)icv, entry->secret, PTP_MAX_ICV_LENGTH);
     if (ret) {
         return -EPERM;
     }
