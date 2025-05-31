@@ -1,10 +1,9 @@
-FROM microdebian/bookworm:latest AS build
+FROM microdebian/bookworm AS build
 
 WORKDIR /service
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y build-essential cmake pkg-config libcap2-bin libuv1-dev libssl-dev libsqlite3-dev libwebsockets-dev libcjson-dev && rm -rf /var/lib/apt/lists/*
-RUN ls /lib
+RUN apt-get update && apt-get install -y build-essential cmake pkg-config libcap2-bin libuv1-dev libssl-dev libsqlite3-dev libwebsockets-dev libcjson-dev && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy sources
 COPY CMakeLists.txt .
@@ -16,10 +15,10 @@ RUN setcap CAP_NET_BIND_SERVICE+ep build/bin/syncryn1z3
 
 
 # Use a suitable base-image
-FROM microdebian/bookworm:latest
+FROM microdebian/bookworm
 
 # Add runtime dependencies 
-RUN apt-get update && apt-get install -y tini gosu adduser openssl libuv1 libsqlite3-0 libwebsockets17 libwebsockets-evlib-uv libcjson1 gdbserver && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y tini gosu adduser python3 openssl libuv1 libsqlite3-0 libwebsockets17 libwebsockets-evlib-uv libcjson1 gdbserver && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create a seperate user and chown new directories if necessary
 RUN addgroup --system service
@@ -37,6 +36,9 @@ WORKDIR /service/
 
 # Copy the compiled binary from build stage
 COPY --from=build /service/build/bin/syncryn1z3 .
+
+# Copy cleanup script
+COPY cleanup.py cleanup.py
 
 WORKDIR /service/
 

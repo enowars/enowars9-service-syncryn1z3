@@ -41,14 +41,6 @@ int db_setup(struct db_state *state, struct db_config *config) {
         return -1;
     }
 
-    const char *pragma_query = "PRAGMA journal_mode=WAL;";
-    ret = sqlite3_exec(state->handle, pragma_query, 0, 0, &error_message);
-    if (ret != SQLITE_OK) {
-        fprintf(stderr, "SQL error: %s\n", error_message);
-        sqlite3_free(error_message);
-        return -1;
-    }
-
     const char *create_query =
         "CREATE TABLE IF NOT EXISTS\n"
         "ports(clock_id INTEGER NOT NULL, port INTEGER NOT NULL, visible BOOLEAN, authentication_policy INTEGER, secret TEXT, user_description TEXT, creation_time DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(clock_id, port));";
