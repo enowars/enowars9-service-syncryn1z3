@@ -124,7 +124,7 @@ int db_get(struct db_state *state, struct db_entry **entry, struct ptp_decoded_p
     (*entry)->visible = sqlite3_column_int(statement, 2);
     (*entry)->user_description_length = sqlite3_column_int(statement, 4);
     memcpy((*entry)->user_description, sqlite3_column_blob(statement, 3), (*entry)->user_description_length);
-    strcpy((*entry)->secret, (const char *)sqlite3_column_text(statement, 5));
+    strncpy((*entry)->secret, (const char *)sqlite3_column_text(statement, 5), DB_SECRET_SIZE);
 
     ret = sqlite3_step(statement);
     if (ret != SQLITE_DONE) {
@@ -186,7 +186,7 @@ int db_get_recent(struct db_state *state, struct db_entry **entries, short lengt
         entries[i]->visible = sqlite3_column_int(statement, 4);
         entries[i]->user_description_length = sqlite3_column_int(statement, 6);
         memcpy(entries[i]->user_description, sqlite3_column_blob(statement, 5), entries[i]->user_description_length);
-        strcpy(entries[i]->secret, (const char *)sqlite3_column_text(statement, 7));
+        strncpy(entries[i]->secret, (const char *)sqlite3_column_text(statement, 7), DB_SECRET_SIZE);
     }
 
     ret = 0;

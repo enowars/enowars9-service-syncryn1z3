@@ -169,7 +169,7 @@ static int http_handle_task_inspect_clock(struct http_state *state, struct http_
     if (entry->authentication_policy != PTP_AUTHENTICATION_POLICY_NONE) {
         ret = strncmp(entry->secret, json_string_get(secret_json), DB_SECRET_SIZE);
         if (ret) {
-            return http_send_error(session, ret, "Wrong secret");
+            return http_send_error(session, EPERM, "Wrong secret");
         }
     }
 

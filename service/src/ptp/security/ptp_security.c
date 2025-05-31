@@ -14,6 +14,25 @@
 #define PTP_MAX_ICV_LENGTH 64
 #define PTP_HMAC_128_SIZE 16
 
+#pragma GCC push_options
+#pragma GCC optimize("O0")
+static int strncmp_const_time(const char *a, const char *b, size_t len) {
+    int ret = 0;
+    int not_done = -1;
+    
+    for (int i = 0; i < len; ++i) {
+        int compare = (int)*a - (int)*b;
+        ret ^= (~(!ret - 1) & compare) & not_done;
+        not_done &= (!(*a && *b) - 1);
+
+        ++a;
+        ++b;
+    }
+
+    return ret;
+}
+#pragma GCC pop_options
+
 static inline int ptp_compute_icv_none(struct ptp_decoded_authentication_tlv *tlv) {
     tlv->icv[0] = '\0';
 
@@ -73,7 +92,7 @@ static inline int ptp_check_icv_plain(struct ptp_decoded_authentication_tlv *tlv
     char *icv = (char *)tlv->icv;
 
     // Compare plaintext password
-    ret = strncmp((char *)icv, entry->secret, PTP_MAX_ICV_LENGTH);
+    ret = strncmp_const_time((char *)icv, entry->secret, PTP_MAX_ICV_LENGTH);
     if (ret) {
         return -EPERM;
     }
@@ -93,7 +112,8 @@ static inline int ptp_check_icv_hmac_128(struct common_message_info *info, struc
     // Calculate ICV
     HMAC(EVP_sha256(), entry->secret, strnlen(entry->secret, PTP_PORT_SECRET_SIZE), data, data_length, icv_temp, &icv_length);
 
-    ret = memcmp(icv, icv_temp, tlv->icv_length);
+    // Compare 128 bits
+    ret = memcmp(icv, icv_temp, PTP_HMAC_128_SIZE); // In theory, this should also be a constant time comparison
     if (ret) {
         return -EPERM;
     }
