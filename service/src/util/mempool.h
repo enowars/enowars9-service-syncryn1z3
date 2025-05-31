@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include <util/error.h>
+#include <util/memory.h>
 
 struct util_mempool;
 
@@ -31,7 +32,7 @@ static inline int util_mempool_setup(struct util_mempool *mempool, short length,
     const int total_length = aligned_item_length * count;
     mempool->descriptor_unit_item_length = aligned_item_length / sizeof(struct util_mempool_item_descriptor);
 
-    mempool->start = (struct util_mempool_item_descriptor *)malloc(total_length);
+    mempool->start = (struct util_mempool_item_descriptor *)util_safe_malloc(total_length);
     if (!mempool->start) {
         perror("Failed to allocate mempool");
         return -1;
@@ -50,7 +51,7 @@ static inline int util_mempool_setup(struct util_mempool *mempool, short length,
 }
 
 static inline int util_mempool_cleanup(struct util_mempool *mempool) {
-    free(mempool->start);
+    util_safe_free(mempool->start);
 
     return 0;
 }

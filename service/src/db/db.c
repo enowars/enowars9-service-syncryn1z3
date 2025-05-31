@@ -10,6 +10,7 @@
 
 #include <db/db.h>
 #include <ptp/ptp_helper.h>
+#include <util/memory.h>
 
 #define DB_CACHE_SIZE 256
 
@@ -52,7 +53,7 @@ int db_setup(struct db_state *state, struct db_config *config) {
         return -1;
     }
 
-    state->cache = calloc(DB_CACHE_SIZE, sizeof(struct db_entry));
+    state->cache = util_safe_malloc(DB_CACHE_SIZE * sizeof(struct db_entry));
     if (!state->cache) {
         return -ENOMEM;
     }
@@ -68,7 +69,7 @@ int db_cleanup(struct db_state *state) {
         return -1;
     }
 
-    free(state->cache);
+    util_safe_free(state->cache);
 
     return 0;
 }
