@@ -186,7 +186,7 @@ int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_message *requ
 
     ret = strncmp(entry->secret, secret_json->valuestring, DB_SECRET_SIZE);
     if (ret) {
-        return ws_send_error(request, ret, "Wrong secret"); // Vuln: return value gets leaked
+        return ws_send_error(request, ret, "Wrong secret");
     }
 
     cJSON *response_json = cJSON_CreateObject();

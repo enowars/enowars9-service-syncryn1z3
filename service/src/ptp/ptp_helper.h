@@ -30,7 +30,6 @@ static int ptp_get_and_init_response(struct ptp_state *state, struct common_tran
     memcpy(&transaction->response->address, &transaction->request->address, sizeof(transaction->request->address));
     transaction->response->address.length = sizeof(transaction->response->address.address);
 
-    // Possible vuln if ommited
     memset(&transaction->response->message, 0, sizeof(transaction->response->message));
 
     transaction->response->message.type = type;

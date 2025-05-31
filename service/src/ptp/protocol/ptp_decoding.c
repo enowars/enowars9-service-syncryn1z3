@@ -277,7 +277,7 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
     output->type = (enum ptp_tlv_type)be16toh(header->type);
     output->authenticated = false;
 
-    const short length = be16toh(header->length); // Vulnerability (signed conversion bug)
+    const short length = be16toh(header->length);
 
     head += sizeof(struct ptp_encoded_tlv_header);
     uint8_t *const tlv_tail = head + length;

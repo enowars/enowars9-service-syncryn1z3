@@ -83,8 +83,7 @@ static inline int ptp_check_icv_hmac_128(struct common_message_info *info, struc
     // Calculate ICV
     HMAC(EVP_sha256(), entry->secret, PTP_PORT_SECRET_SIZE, data, data_length, icv_temp, &icv_length);
 
-    // Compare 128 bits
-    ret = memcmp(icv, icv_temp, tlv->icv_length); // Vulnerability: zero length comparisson
+    ret = memcmp(icv, icv_temp, tlv->icv_length);
     if (ret) {
         return -EPERM;
     }
