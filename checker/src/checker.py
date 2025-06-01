@@ -154,31 +154,20 @@ class UdpConnection:
         if message.decoded.type == ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
             self.logger.debug(f"Decoded management message: (action: {message.decoded.payload.management.action}, target_port_id: {encode_port_id(message.decoded.payload.management.target_port_id.clock_id, message.decoded.payload.management.target_port_id.port)})")
 
-        return message
-    
-class WsConnection:
-    def __init__(self, uri: str, logger: LoggerAdapter):
-        self.uri = uri
-        self.logger = logger
-        self.websocket = None
+        return message 
 
-    async def connect(self):
-        try:
-            self.websocket = await websockets.asyncio.client.connect(self.uri, open_timeout=1, user_agent_header=fake_useragent.UserAgent().random)
-        except TimeoutError:
-            raise OfflineException("Websocket connection timeout")
-        except:
-            raise OfflineException("Websocket connection failed")
-        
-        self.logger.debug(f"Websocket connected to {self.uri}")
+class WsConnection:
+    def __init__(self, client: websockets.asyncio.client.ClientConnection, logger: LoggerAdapter):
+        self.client = client
+        self.logger = logger
 
     async def send(self, message: str):        
-        await self.websocket.send(message)
+        await self.client.send(message)
         self.logger.debug(f"Sent websocket message: {message}")
 
     async def receive(self) -> str:        
         try:
-            message = await asyncio.wait_for(self.websocket.recv(), 1)
+            message = await asyncio.wait_for(self.client.recv(), 1)
         except asyncio.TimeoutError:
             raise OfflineException("Timeout waiting for websocket message")
         except websockets.exceptions.ConnectionClosed:
@@ -208,12 +197,25 @@ def _get_udp_connection(task: BaseCheckerTaskMessage, protocol: typing.AsyncIter
     return UdpConnection(task.address, protocol, logger)
 
 @checker.register_dependency
-async def _get_ws_connection(task: BaseCheckerTaskMessage, logger: LoggerAdapter) -> WsConnection:
-    connection = WsConnection(f"ws://{task.address}:{HTTP_PORT}/ws/", logger)
-    await connection.connect()
+@contextlib.asynccontextmanager
+async def _get_ws_client(task: BaseCheckerTaskMessage, logger: LoggerAdapter) -> typing.AsyncIterator[websockets.asyncio.client.ClientConnection]:
+    try:
+        client = await websockets.asyncio.client.connect(f"ws://{task.address}:{HTTP_PORT}/ws/", open_timeout=1, user_agent_header=fake_useragent.UserAgent().random)
+    except TimeoutError:
+        raise OfflineException("Websocket connection timeout")
+    except:
+        raise OfflineException("Websocket connection failed")
+    
+    logger.debug(f"Websocket connected to {task.address}")
 
-    return connection
+    try:
+        yield client
+    finally:
+        await client.close()
 
+@checker.register_dependency
+def _get_ws_connection(client: typing.AsyncIterator[websockets.asyncio.client.ClientConnection], logger: LoggerAdapter) -> WsConnection:
+    return WsConnection(client, logger)
 
 """
 Message functions
