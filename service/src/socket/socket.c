@@ -67,6 +67,8 @@ static int receive_message(struct socket_state *state, struct socket_instance *i
     info->buffer.length = recvfrom(instance->fd, info->buffer.data, COMMON_BUFFER_SIZE, 0, (struct sockaddr *)&info->address.address, &info->address.length);
     if (info->buffer.length < 0) {
         perror("Failed to receive message");
+        free(info);
+        
         return -1;
     }
 

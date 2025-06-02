@@ -1,11 +1,13 @@
 #pragma once
 
 #include <errno.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
 
 #include <util/error.h>
-#include <util/memory.h>
+
+#define UTIL_MEMPOOL_GUARD_LENGTH 65536
 
 struct util_mempool;
 
@@ -29,15 +31,16 @@ static inline int util_mempool_setup(struct util_mempool *mempool, short length,
         aligned_item_length += sizeof(struct util_mempool_item_descriptor) - (length % sizeof(struct util_mempool_item_descriptor));
     }
 
-    const int total_length = aligned_item_length * count;
+    const int total_length = aligned_item_length * count + UTIL_MEMPOOL_GUARD_LENGTH;
     mempool->descriptor_unit_item_length = aligned_item_length / sizeof(struct util_mempool_item_descriptor);
 
-    mempool->start = (struct util_mempool_item_descriptor *)util_safe_malloc(total_length);
-    if (!mempool->start) {
+    void *buffer = malloc(total_length);
+    if (!buffer) {
         perror("Failed to allocate mempool");
         return -1;
     }
-
+    
+    mempool->start = (struct util_mempool_item_descriptor *)(buffer + UTIL_MEMPOOL_GUARD_LENGTH);
     mempool->end = mempool->start + count * mempool->descriptor_unit_item_length;
 
     for (struct util_mempool_item_descriptor *descriptor = mempool->start; descriptor < mempool->end; descriptor += mempool->descriptor_unit_item_length) {
@@ -51,7 +54,7 @@ static inline int util_mempool_setup(struct util_mempool *mempool, short length,
 }
 
 static inline int util_mempool_cleanup(struct util_mempool *mempool) {
-    util_safe_free(mempool->start);
+    free(mempool->start - UTIL_MEMPOOL_GUARD_LENGTH);
 
     return 0;
 }

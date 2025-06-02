@@ -20,22 +20,27 @@
 static int ws_send_response(struct ws_message *request, cJSON *response_json) {
     int ret;
 
-    void *response_buffer = ((char *)malloc(WS_MAX_RESPONSE_SIZE + LWS_PRE));
+    void *response_buffer = malloc(WS_MAX_RESPONSE_SIZE + LWS_PRE);
     char *response = ((char *)response_buffer) + LWS_PRE;
 
     if (!cJSON_PrintPreallocated(response_json, response, WS_MAX_RESPONSE_SIZE, false)) {
         fprintf(stderr, "Failed to serialize JSON response\n");
-        free(response_buffer);
-
-        return -1;
+        
+        ret = -1;
+        goto out;
     }
 
     ret = lws_write(request->socket, (uint8_t *)response, strnlen(response, WS_MAX_RESPONSE_SIZE), LWS_WRITE_TEXT);
     if (ret < 0) {
-        return ret;
+        goto out;
     }
 
-    return 0;
+    ret = 0;
+
+out:
+    free(response_buffer);
+    
+    return ret;
 }
 
 static int ws_send_error_va(struct ws_message *request, int code, const char *format, va_list va_args) {

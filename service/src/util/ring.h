@@ -6,8 +6,6 @@
 #include <stdio.h>
 #include <stdatomic.h>
 
-#include <util/memory.h>
-
 struct util_ring {
     void **buffer;
 
@@ -18,7 +16,7 @@ struct util_ring {
 };
 
 static inline int util_ring_setup(struct util_ring *ring, int length) {
-    ring->buffer = (void **)util_safe_malloc(sizeof(void *) * length);
+    ring->buffer = (void **)malloc(sizeof(void *) * length);
     
     if (!ring->buffer) {
         perror("Failed to allocate ring");
@@ -34,7 +32,7 @@ static inline int util_ring_setup(struct util_ring *ring, int length) {
 }
 
 static inline int util_ring_cleanup(struct util_ring *ring) {
-    util_safe_free(ring->buffer);
+    free(ring->buffer);
 
     return 0;
 }
