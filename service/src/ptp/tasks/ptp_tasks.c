@@ -41,20 +41,39 @@ static int ptp_send_sync(struct ptp_state *state, struct common_message_info *re
 static int ptp_send_announce(struct ptp_state *state, struct common_message_info *request, struct ptp_decoded_port_id port_id) {
     int ret;
     struct common_transaction_info transaction;
+    struct db_entry *entry;
+    struct ptp_decoded_tlv *tlv;
 
     transaction.request = request;
+
+    ret = db_get(state->config->db_state, &entry, port_id);
+    if (ret) {
+        return ret;
+    }
 
     ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_EVENT, PTP_MESSAGE_TYPE_ANNOUNCE, port_id, transaction.request->message.sequence_id);
     if (ret) {
         return ret;
     }
 
-    transaction.response->message.payload.announce.timestamp = util_get_time_ns();
+    transaction.response->message.payload.announce.timestamp = ptp_get_port_time(state, port_id);
     transaction.response->message.payload.announce.grandmaster_priority = state->config->clock_priority;
     memcpy(&transaction.response->message.payload.announce.grandmaster_clock_quality, &state->config->clock_quality, sizeof(state->config->clock_quality));
     transaction.response->message.payload.announce.grandmaster_id = port_id.clock_id;
     transaction.response->message.payload.announce.steps_removed = 0;
     transaction.response->message.payload.announce.time_source = PTP_TIME_SOURCE_INTERNAL_OSCILLATOR;
+
+    tlv = ptp_add_tlv(&transaction.response->message);
+    if (!tlv) {
+        return -EMSGSIZE;
+    }
+
+    tlv->type = PTP_TLV_TYPE_ALTERNATE_TIME_OFFSET_INDICATOR;
+    tlv->payload.alternate_time_offset_indicator.key = 0;
+    tlv->payload.alternate_time_offset_indicator.current_offset = entry->offset / 1000000000;
+    tlv->payload.alternate_time_offset_indicator.jump_seconds = 0;
+    tlv->payload.alternate_time_offset_indicator.time_of_next_jump = 0;
+    tlv->payload.alternate_time_offset_indicator.display_name[0] = '\0';
 
     ret = ptp_finalize_message(state, transaction.response);
     if (ret) {
@@ -176,7 +195,7 @@ static int ptp_handle_management_time_get(struct ptp_state *state, struct common
     tlv->type = PTP_TLV_TYPE_MANAGEMENT;
     tlv->payload.management.id = PTP_MANAGEMENT_ID_TIME;
 
-    tlv->payload.management.payload.time = util_get_time_ns();
+    tlv->payload.management.payload.time = ptp_get_port_time(state, transaction->request->message.payload.management.target_port_id);
 
     return 0;
 }

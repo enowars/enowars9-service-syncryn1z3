@@ -28,7 +28,7 @@ static struct lws_protocols protocols[] = {
         .per_session_data_size = 0,
         .rx_buffer_size = 0,
     },
-    { NULL, NULL, 0, 0 } // Terminator
+    {NULL, NULL, 0, 0} // Terminator
 };
 
 int ws_setup(struct ws_state *state, struct ws_config *config) {

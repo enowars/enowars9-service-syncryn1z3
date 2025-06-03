@@ -4,7 +4,8 @@ import time
 import hmac
 import hashlib
 import argparse
-import socket
+import math
+import datetime
 
 import ptp_protocol
 import ptp_message
@@ -70,8 +71,8 @@ class Connection:
 Utility functions
 """
 
-def get_time_ns(offset = 0):
-    return time.clock_gettime_ns(time.CLOCK_MONOTONIC) + offset
+def get_time_ns():
+    return time.clock_gettime_ns(time.CLOCK_MONOTONIC)
 
 def generate_port_id():
     clock_id = random.randint(0x0200000000000001, 0x02ffffffffffffff)
@@ -164,6 +165,20 @@ async def request_unicast_message(connection: Connection, clock_id: int, port: i
 
     raise PtpException("Received no unicast transmission grant")
 
+async def get_offset(connection: Connection, clock_id: int, port: int, secret: str):
+    await request_unicast_message(connection, clock_id, port, secret, ptp_protocol.lib.PTP_MESSAGE_TYPE_ANNOUNCE)
+
+    announce = await connection.receive(EVENT_PORT)
+
+    if announce.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_ANNOUNCE:
+        raise PtpException("Expected announce message")
+    
+    offset_tlv = announce.get_tlvs()[0]
+    if offset_tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_ALTERNATE_TIME_OFFSET_INDICATOR:
+        raise PtpException("Expected alternate time offset indicator tlv")
+    
+    return offset_tlv.payload.alternate_time_offset_indicator.current_offset * 1000000000
+
 async def run_synchronization(connection: Connection, clock_id: int, port: int, secret: str):
     await request_unicast_message(connection, clock_id, port, secret, ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
 
@@ -189,10 +204,8 @@ async def run_synchronization(connection: Connection, clock_id: int, port: int, 
         raise PtpException("Expected delay response message")
     
     t4 = delay_response.decoded.payload.event.timestamp
-    
-    offset = 0
-    offset += int(((t1 + t4) - (t2 + t3)) / 2)
-    print("Time: {:.3f}, Offset: {:.3f}us".format(get_time_ns() / 1000000000, offset / 1000))
+
+    return int(((t1 + t4) - (t2 + t3)) / 2)
 
 def parse_args():
     def hex_int(x):
@@ -231,8 +244,17 @@ async def main():
     print(f"Connected to clock: {args.clock_id:x}/{args.port:x}")
     print(f"Description: {description}")
 
+    offset = await get_offset(connection, args.clock_id, args.port, args.secret)
+
     for _ in range(args.syncs):
-        await run_synchronization(connection, args.clock_id, args.port, args.secret)
+        error = await run_synchronization(connection, args.clock_id, args.port, args.secret)
+
+        current_time_ns = get_time_ns() + error + offset
+        timestamp_seconds = math.floor(current_time_ns / 1000000000)
+        timestamp_nanoseconds = current_time_ns % 1000000000
+
+        print("Time: {}:{:09d}".format(datetime.datetime.fromtimestamp(timestamp_seconds, datetime.timezone.utc).strftime("%d.%m.%Y / %H:%M:%S"), timestamp_nanoseconds))
+
         await asyncio.sleep(args.interval)
 
     print("Exiting")

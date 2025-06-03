@@ -9,7 +9,7 @@ python build.py
 ```
 
 ## Run
-First you need to claim a port on the remote server via the web interface. 
+First you need to create a port on the remote server via the web interface. 
 
 To synchronize your systems clock to that of the remote server use the following command.
 ```

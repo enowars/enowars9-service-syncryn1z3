@@ -5,6 +5,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include <db/db.h>
 #include <ptp/ptp.h>
 #include <ptp/ptp_defaults.h>
 #include <ptp/protocol/ptp_constants.h>
@@ -13,8 +14,10 @@
 #include <ptp/security/ptp_security.h>
 #include <common/common_types.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <util/ring.h>
 #include <util/mempool.h>
+#include <util/time.h>
 
 static int ptp_get_and_init_response(struct ptp_state *state, struct common_transaction_info *transaction, enum common_port_type port_type, enum ptp_message_type type, struct ptp_decoded_port_id port_id, uint16_t sequence_id) {
     int ret;
@@ -102,4 +105,16 @@ static inline int ptp_compare_port_id(struct ptp_decoded_port_id port_id_a, stru
     }
 
     return 0;
+}
+
+static inline uint64_t ptp_get_port_time(struct ptp_state *state, struct ptp_decoded_port_id port_id) {
+    int ret;
+    struct db_entry *entry;
+
+    ret = db_get(state->config->db_state, &entry, port_id);
+    if (ret) {
+        return 0;
+    }
+
+    return util_get_time_ns() + entry->offset;
 }

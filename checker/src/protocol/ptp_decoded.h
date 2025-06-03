@@ -7,6 +7,7 @@
 
 #define PTP_MAX_TLV_COUNT 32
 
+#define PTP_DISPLAY_NAME_SIZE 10
 #define PTP_USER_DESCRIPTION_SIZE 128
 #define PTP_PORT_SECRET_SIZE 100
 #define PTP_MANAGEMENT_ERROR_DISPLAY_DATA_SIZE 50
@@ -72,6 +73,14 @@ struct ptp_decoded_acknowledge_cancel_unicast_transmission_tlv {
     enum ptp_tlv_unicast_flag flags;
 };
 
+struct ptp_decoded_alternate_time_offset_indicator_tlv {
+    uint8_t key;
+    int32_t current_offset;
+    int32_t jump_seconds;
+    uint64_t time_of_next_jump;
+    char display_name[PTP_DISPLAY_NAME_SIZE + 1];
+};
+
 struct ptp_decoded_pad_tlv {
     uint16_t length;  
 };
@@ -96,6 +105,7 @@ struct ptp_decoded_tlv {
         struct ptp_decoded_grant_unicast_transmission_tlv grant_unicast;
         struct ptp_decoded_cancel_unicast_transmission_tlv cancel_unicast;
         struct ptp_decoded_acknowledge_cancel_unicast_transmission_tlv acknowledge_cancel_unicast;
+        struct ptp_decoded_alternate_time_offset_indicator_tlv alternate_time_offset_indicator;
         struct ptp_decoded_pad_tlv pad;
         struct ptp_decoded_authentication_tlv authentication;
     } payload;

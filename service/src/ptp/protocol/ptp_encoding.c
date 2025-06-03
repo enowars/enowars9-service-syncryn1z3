@@ -380,6 +380,42 @@ static int ptp_encode_tlv(uint8_t **output, struct ptp_decoded_tlv *input, uint8
             break;
         }
 
+        case PTP_TLV_TYPE_ALTERNATE_TIME_OFFSET_INDICATOR: {
+            struct ptp_encoded_alternate_time_offset_indicator_tlv *payload = (struct ptp_encoded_alternate_time_offset_indicator_tlv *)head;
+            head += sizeof(struct ptp_encoded_alternate_time_offset_indicator_tlv);
+
+            if (head > tail) {
+                return -EMSGSIZE;
+            }
+
+            payload->key = input->payload.alternate_time_offset_indicator.key;
+            payload->current_offset = htobe32(input->payload.alternate_time_offset_indicator.current_offset);
+            payload->jump_seconds = htobe32(input->payload.alternate_time_offset_indicator.jump_seconds);
+            payload->time_of_next_jump_high = htobe16((input->payload.alternate_time_offset_indicator.time_of_next_jump >> 32) & 0xffff);
+            payload->time_of_next_jump_low = htobe32(input->payload.alternate_time_offset_indicator.time_of_next_jump & 0xffffffff);
+
+            struct ptp_encoded_text_header *string_header = (struct ptp_encoded_text_header *)head;
+            head += sizeof(*string_header);
+
+            if (head > tail) {
+                return -EMSGSIZE;
+            }
+
+            string_header->length = strnlen(input->payload.alternate_time_offset_indicator.display_name, PTP_DISPLAY_NAME_SIZE);
+            int actual_length = string_header->length + (~string_header->length & 0x1); // Add padding to get 2-byte alignment
+
+            if (head + actual_length > tail) {
+                return -EMSGSIZE;
+            }
+
+            memcpy((char *)head, input->payload.alternate_time_offset_indicator.display_name, string_header->length);
+
+            head += actual_length;
+            *output = head;
+
+            break;
+        }
+
         case PTP_TLV_TYPE_PAD: {
             memset(head, 0, input->payload.pad.length);
             head += input->payload.pad.length;

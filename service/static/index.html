@@ -28,6 +28,15 @@
                 <input type="text" id="createClockId" placeholder="Clock ID" maxlength="16">
                 <input type="text" id="createPort" placeholder="Port" maxlength="4">
             </span>
+
+            <div class="input-span">
+                <label for="createTime">Start Time</label>
+                <input type="time" id="createTime" step="1">
+            </div>
+            <div class="input-span">
+                <label for="createDate">Start Date</label>
+                <input type="date" id="createDate">
+            </div>
             
             <input type="text" id="createUserDescription" placeholder="User description" maxlength="128">
 
@@ -77,6 +86,8 @@
                     <thead>
                         <tr>
                             <th>Port ID</th>
+                            <th>Date</th>
+                            <th>Time</th>
                             <th>Command</th>
                         </tr>
                     </thead>

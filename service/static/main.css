@@ -95,17 +95,25 @@ header h2 {
     background-color: #ddd;
 }
 
-.box input[type="text"],
-.box input[type="password"] {
-    width: 100%;
+.box input {
     padding: 0.75rem;
     margin-bottom: 1rem;
     border: 1px solid #ccc;
     border-radius: 0.5rem;
 }
 
+.box input[type="text"],
+.box input[type="password"] {
+    width: 100%;
+}
+
+.box input[type="time"],
+.box input[type="date"] {
+    width: 50%;
+}
+
 .box select {
-    width: 60%;
+    width: 50%;
     padding: 0.75rem;
     margin-bottom: 1rem;
     border: 1px solid #ccc;
@@ -136,10 +144,7 @@ header h2 {
     width: 100%;
     display: flex;
     justify-content: space-between;
-}
-
-.input-span input[type="text"] {
-    width: 45%;
+    gap: 1rem;
 }
 
 .inspect-results {

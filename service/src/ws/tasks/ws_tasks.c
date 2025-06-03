@@ -13,6 +13,7 @@
 #include <ws/ws.h>
 #include <ws/tasks/ws_tasks.h>
 #include <util/error.h>
+#include <util/time.h>
 
 #define WS_MAX_PAGE_SIZE 16
 #define WS_MAX_RESPONSE_SIZE 4096
@@ -126,6 +127,12 @@ int ws_handle_task_get_clocks(struct ws_state *state, struct ws_message *request
 
         snprintf(hex, sizeof(hex), "%hx", entries[i]->port_id.port);
         if (!cJSON_AddStringToObject(port_json, "port", hex)) {
+            cJSON_Delete(port_json);
+            ret = -1;
+            goto out;
+        }
+
+        if (!cJSON_AddNumberToObject(port_json, "time", (util_get_time_ns() + entries[i]->offset) / 1000000000L)) {
             cJSON_Delete(port_json);
             ret = -1;
             goto out;
@@ -254,18 +261,21 @@ int ws_handle_task_create_clock(struct ws_state *state, struct ws_message *reque
 
     cJSON *clock_id_json = cJSON_GetObjectItemCaseSensitive(request_json, "clockId");
     cJSON *port_json = cJSON_GetObjectItemCaseSensitive(request_json, "port");
+    cJSON *offset_seconds_json = cJSON_GetObjectItemCaseSensitive(request_json, "offsetSeconds");
+    cJSON *offset_nanoseconds_json = cJSON_GetObjectItemCaseSensitive(request_json, "offsetNanoseconds");
     cJSON *authentication_policy_json = cJSON_GetObjectItemCaseSensitive(request_json, "authenticationPolicy");
     cJSON *visible_json = cJSON_GetObjectItemCaseSensitive(request_json, "visible");
     cJSON *secret_json = cJSON_GetObjectItemCaseSensitive(request_json, "secret");
     cJSON *user_description_json = cJSON_GetObjectItemCaseSensitive(request_json, "userDescription");
 
-    if (!cJSON_IsString(clock_id_json) || !cJSON_IsString(port_json) || !cJSON_IsString(authentication_policy_json) || !cJSON_IsBool(visible_json) || !cJSON_IsString(secret_json) || !cJSON_IsString(user_description_json)) {
+    if (!cJSON_IsString(clock_id_json) || !cJSON_IsString(port_json) || !cJSON_IsNumber(offset_seconds_json) || !cJSON_IsNumber(offset_nanoseconds_json) || !cJSON_IsString(authentication_policy_json) || !cJSON_IsBool(visible_json) || !cJSON_IsString(secret_json) || !cJSON_IsString(user_description_json)) {
         return ws_send_error(request, EINVAL, "Missing value");
     }
 
     struct db_entry entry;
     entry.port_id.clock_id = strtoul(clock_id_json->valuestring, NULL, 16);
     entry.port_id.port = strtoul(port_json->valuestring, NULL, 16);
+    entry.offset = ((int64_t)offset_seconds_json->valuedouble) * 1000000000L + (int64_t)offset_nanoseconds_json->valuedouble - util_get_time_ns();
     entry.visible = cJSON_IsTrue(visible_json);
     strncpy(entry.secret, secret_json->valuestring, DB_SECRET_SIZE);
     strncpy(entry.user_description, user_description_json->valuestring, DB_USER_DESCRIPTION_SIZE);

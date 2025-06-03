@@ -1,4 +1,3 @@
-#include "ptp/protocol/ptp_decoded.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -10,6 +9,7 @@
 
 #include <db/db.h>
 #include <ptp/ptp_helper.h>
+#include <ptp/protocol/ptp_decoded.h>
 
 #define DB_CACHE_SIZE 256
 
@@ -43,7 +43,7 @@ int db_setup(struct db_state *state, struct db_config *config) {
 
     const char *create_query =
         "CREATE TABLE IF NOT EXISTS\n"
-        "ports(clock_id INTEGER NOT NULL, port INTEGER NOT NULL, visible BOOLEAN, authentication_policy INTEGER, secret TEXT, user_description TEXT, creation_time DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(clock_id, port));";
+        "ports(clock_id INTEGER NOT NULL, port INTEGER NOT NULL, offset INTEGER, visible BOOLEAN, authentication_policy INTEGER, secret TEXT, user_description TEXT, creation_time DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(clock_id, port));";
 
     ret = sqlite3_exec(state->handle, create_query, 0, 0, &error_message);
     if (ret != SQLITE_OK) {
@@ -89,7 +89,7 @@ int db_get(struct db_state *state, struct db_entry **entry, struct ptp_decoded_p
     }
 
     const char *select_query =
-        "SELECT visible, authentication_policy, secret, user_description FROM ports\n"
+        "SELECT offset, visible, authentication_policy, secret, user_description FROM ports\n"
         "WHERE (clock_id==? AND port==?);";
 
     ret = sqlite3_prepare_v2(state->handle, select_query, -1, &statement, 0);
@@ -104,7 +104,7 @@ int db_get(struct db_state *state, struct db_entry **entry, struct ptp_decoded_p
     ret = sqlite3_step(statement);
     if (ret != SQLITE_ROW) {
         if (ret == SQLITE_DONE) {
-            ret = 0;
+            ret = -ENODATA;
         } else {
             fprintf(stderr, "Execution failed: %s\n", sqlite3_errmsg(state->handle));
             ret = -1;
@@ -116,10 +116,11 @@ int db_get(struct db_state *state, struct db_entry **entry, struct ptp_decoded_p
     (*entry)->port_id.clock_id = port_id.clock_id;
     (*entry)->port_id.port = port_id.port;
     (*entry)->valid = true;
-    (*entry)->visible = sqlite3_column_int(statement, 0);;
-    (*entry)->authentication_policy = sqlite3_column_int(statement, 1);
-    memcpy(&(*entry)->secret, sqlite3_column_text(statement, 2), DB_SECRET_SIZE);
-    memcpy(&(*entry)->user_description, sqlite3_column_text(statement, 3), DB_USER_DESCRIPTION_SIZE);
+    (*entry)->offset = sqlite3_column_int64(statement, 0);
+    (*entry)->visible = sqlite3_column_int(statement, 1);
+    (*entry)->authentication_policy = sqlite3_column_int(statement, 2);
+    memcpy(&(*entry)->secret, sqlite3_column_text(statement, 3), DB_SECRET_SIZE);
+    memcpy(&(*entry)->user_description, sqlite3_column_text(statement, 4), DB_USER_DESCRIPTION_SIZE);
 
     ret = sqlite3_step(statement);
     if (ret != SQLITE_DONE) {
@@ -142,7 +143,7 @@ int db_get_recent(struct db_state *state, struct db_entry **entries, short lengt
     sqlite3_stmt *statement;
 
     const char *select_query =
-        "SELECT clock_id, port, visible, authentication_policy, secret, user_description FROM ports\n"
+        "SELECT clock_id, port, offset, visible, authentication_policy, secret, user_description FROM ports\n"
         "WHERE visible\n"
         "ORDER BY creation_time DESC LIMIT ?;";
 
@@ -176,10 +177,11 @@ int db_get_recent(struct db_state *state, struct db_entry **entries, short lengt
         entries[i] = &state->cache[db_hash(port_id)];
         entries[i]->port_id = port_id;
         entries[i]->valid = true;
-        entries[i]->visible = sqlite3_column_int(statement, 2);
-        entries[i]->authentication_policy = sqlite3_column_int(statement, 3);
-        memcpy(entries[i]->secret, sqlite3_column_text(statement, 4), DB_SECRET_SIZE);
-        memcpy(&entries[i]->user_description, sqlite3_column_text(statement, 5), DB_USER_DESCRIPTION_SIZE);
+        entries[i]->offset = sqlite3_column_int64(statement, 2);
+        entries[i]->visible = sqlite3_column_int(statement, 3);
+        entries[i]->authentication_policy = sqlite3_column_int(statement, 4);
+        memcpy(entries[i]->secret, sqlite3_column_text(statement, 5), DB_SECRET_SIZE);
+        memcpy(&entries[i]->user_description, sqlite3_column_text(statement, 6), DB_USER_DESCRIPTION_SIZE);
     }
 
     ret = 0;
@@ -204,8 +206,8 @@ int db_set(struct db_state *state, struct db_entry *entry) {
     state->cache[db_hash(entry->port_id)].valid = false;
 
     const char *insert_query =
-        "INSERT INTO ports(clock_id, port, visible, authentication_policy, secret, user_description)\n"
-        "VALUES (?, ?, ?, ?, ?, ?);";
+        "INSERT INTO ports(clock_id, port, offset, visible, authentication_policy, secret, user_description)\n"
+        "VALUES (?, ?, ?, ?, ?, ?, ?);";
 
     ret = sqlite3_prepare_v2(state->handle, insert_query, -1, &statement, 0);
     if (ret != SQLITE_OK) {
@@ -215,10 +217,11 @@ int db_set(struct db_state *state, struct db_entry *entry) {
 
     sqlite3_bind_int64(statement, 1, entry->port_id.clock_id);
     sqlite3_bind_int(statement, 2, entry->port_id.port);
-    sqlite3_bind_int(statement, 3, entry->visible);
-    sqlite3_bind_int(statement, 4, entry->authentication_policy);
-    sqlite3_bind_text(statement, 5, entry->secret, DB_SECRET_SIZE, NULL);
-    sqlite3_bind_text(statement, 6, entry->user_description, DB_USER_DESCRIPTION_SIZE, NULL);
+    sqlite3_bind_int64(statement, 3, entry->offset);
+    sqlite3_bind_int(statement, 4, entry->visible);
+    sqlite3_bind_int(statement, 5, entry->authentication_policy);
+    sqlite3_bind_text(statement, 6, entry->secret, DB_SECRET_SIZE, NULL);
+    sqlite3_bind_text(statement, 7, entry->user_description, DB_USER_DESCRIPTION_SIZE, NULL);
 
     ret = sqlite3_step(statement);
     if (ret != SQLITE_DONE) {

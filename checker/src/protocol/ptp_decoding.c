@@ -364,6 +364,36 @@ static int ptp_decode_tlv(struct ptp_decoded_tlv *output, uint8_t **input, uint8
             break;
         }
 
+        case PTP_TLV_TYPE_ALTERNATE_TIME_OFFSET_INDICATOR: {
+            struct ptp_encoded_alternate_time_offset_indicator_tlv *payload = (struct ptp_encoded_alternate_time_offset_indicator_tlv *)head;
+            head += sizeof(struct ptp_encoded_alternate_time_offset_indicator_tlv);
+
+            if (head > tlv_tail) {
+                return -EMSGSIZE;
+            }
+
+            output->payload.alternate_time_offset_indicator.key = payload->key;
+            output->payload.alternate_time_offset_indicator.current_offset = be32toh(payload->current_offset);
+            output->payload.alternate_time_offset_indicator.jump_seconds = be32toh(payload->jump_seconds);
+            output->payload.alternate_time_offset_indicator.time_of_next_jump = ((uint64_t)be16toh(payload->time_of_next_jump_high) << 32) | (uint64_t)be32toh(payload->time_of_next_jump_low);
+
+            struct ptp_encoded_text_header *string_header = (struct ptp_encoded_text_header *)head;
+            head += sizeof(*string_header);
+
+            if (string_header->length > PTP_DISPLAY_NAME_SIZE) {
+                return -EMSGSIZE;
+            }
+
+            if (head + string_header->length > tlv_tail) {
+                return -EMSGSIZE;
+            }
+
+            strncpy(output->payload.alternate_time_offset_indicator.display_name, (char *)head, string_header->length);
+            output->payload.alternate_time_offset_indicator.display_name[string_header->length] = '\0';
+
+            break;
+        }
+
         case PTP_TLV_TYPE_PAD: {
             output->payload.pad.length = length;
 

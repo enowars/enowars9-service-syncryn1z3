@@ -210,6 +210,16 @@ struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv {
 
 _Static_assert(sizeof(struct ptp_encoded_acknowledge_cancel_unicast_transmission_tlv) == 2);
 
+struct ptp_encoded_alternate_time_offset_indicator_tlv {
+    uint8_t key;
+    int32_t current_offset;
+    int32_t jump_seconds;
+    uint16_t time_of_next_jump_high;
+    uint32_t time_of_next_jump_low;
+} __attribute__((packed, aligned(1)));
+
+_Static_assert(sizeof(struct ptp_encoded_alternate_time_offset_indicator_tlv) == 15);
+
 struct ptp_encoded_authetication_tlv {
     uint8_t policy;
     uint8_t parameter_indicator;
@@ -223,9 +233,3 @@ struct ptp_encoded_management_tlv_time {
 } __attribute__((packed, aligned(1)));
 
 _Static_assert(sizeof(struct ptp_encoded_management_tlv_time) == 10);
-
-struct ptp_encoded_management_tlv_port_claim {
-    uint8_t authentication_policy;
-} __attribute__((packed, aligned(1)));
-
-_Static_assert(sizeof(struct ptp_encoded_management_tlv_port_claim) == 1);

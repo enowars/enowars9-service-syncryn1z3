@@ -11,6 +11,7 @@ struct sqlite3;
 
 struct db_entry {
     struct ptp_decoded_port_id port_id;
+    int64_t offset;
 
     bool valid;
     bool visible;

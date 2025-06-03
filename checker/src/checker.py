@@ -13,6 +13,7 @@ import json
 import errno
 import fake_useragent
 import lorem
+import time
 import numpy as np
 
 from logging import LoggerAdapter
@@ -56,6 +57,9 @@ app = lambda: checker.app
 Utility functions
 """
 
+def get_time_ns():
+    return time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+
 def generate_port_id():
     clock_id = random.randint(0x1, 0x7ffffffffffffffe)
     port = random.randint(0x1, 0xfffe)
@@ -66,7 +70,7 @@ def generate_secret(length: int):
     return (''.join(secrets.choice(string.printable) for _ in range(length)))
 
 def generate_timestamp():
-    return random.randint(0x0, 0xffffffffffffffff)
+    return random.randint(0x0, 0xffffffff * 1000000000) 
 
 def encode_port_id(clock_id: int, port: int):
     return f"{clock_id:x}/{port:x}"
@@ -264,11 +268,13 @@ def finalize_auth_tlvs(request, secret=b"", icv=None):
 Functionality functions
 """
 
-async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id: int, port: int, visible: bool, secret: str, policy: str, description: str, expect_error=False):
+async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id: int, port: int, offset: int, visible: bool, secret: str, policy: str, description: str, expect_error=False):
     request = json.dumps({
         "task": "create_clock",
         "clockId": f"{clock_id:x}",
         "port": f"{port:x}",
+        "offsetSeconds": np.floor(offset / 1000000000),
+        "offsetNanoseconds": offset % 1000000000,
         "visible": visible,
         "authenticationPolicy": policy,
         "userDescription": description,
@@ -459,7 +465,7 @@ async def run_synchronization(connection: UdpConnection, logger: LoggerAdapter, 
     delay_request = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_DELAY_REQUEST, local_clock_id, local_port, 0)
 
     payload = delay_request.get_payload()
-    payload.event.timestamp = generate_timestamp()
+    payload.event.timestamp = get_time_ns()
 
     connection.send(delay_request, EVENT_PORT)
     delay_response = await connection.receive(EVENT_PORT)
@@ -497,7 +503,7 @@ async def putflag_visible(
     if len(description) > 1024:
         raise InternalErrorException("Encountered flag with unsupported length")
 
-    await create_clock(connection, logger, clock_id, port, True, secret, "hmac", description)
+    await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", description)
 
     await db.set("userdata", (clock_id, port, secret))
     await db.set("prefix_length", len(prefix))
@@ -517,7 +523,7 @@ async def putflag_hmac(
     if len(task.flag) > 128:
         raise InternalErrorException("Encountered flag with unsupported length")
 
-    await create_clock(connection, logger, clock_id, port, False, secret, "hmac", task.flag)
+    await create_clock(connection, logger, clock_id, port, generate_timestamp(), False, secret, "hmac", task.flag)
 
     await db.set("userdata", (clock_id, port, secret))
 
@@ -536,7 +542,7 @@ async def putflag_plain(
     if len(task.flag) > 128:
         raise InternalErrorException("Encountered flag with unsupported length")
 
-    await create_clock(connection, logger, clock_id, port, False, secret, "plain", task.flag)
+    await create_clock(connection, logger, clock_id, port, generate_timestamp(), False, secret, "plain", task.flag)
 
     await db.set("userdata", (clock_id, port, secret))
 
@@ -604,11 +610,27 @@ async def putnoise_sync(
     clock_id, port = generate_port_id()
     secret = generate_secret(50)
 
-    await create_clock(connection, logger, clock_id, port, True, secret, "hmac", "")
+    await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", "")
 
     await db.set("userdata", (clock_id, port, secret))
 
 @checker.putnoise(1)
+async def putnoise_time(
+    task: PutnoiseCheckerTaskMessage,
+    db: ChainDB,
+    connection: WsConnection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id, port = generate_port_id()
+    secret = generate_secret(50)
+    start_time = generate_timestamp()
+
+    await create_clock(connection, logger, clock_id, port, start_time, True, secret, "hmac", "")
+
+    await db.set("userdata", (clock_id, port, secret))
+    await db.set("timedata", (start_time, get_time_ns()))
+
+@checker.putnoise(2)
 async def putnoise_user_description_twice(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
@@ -619,8 +641,8 @@ async def putnoise_user_description_twice(
     secret = generate_secret(50)
     description = generate_secret(50)
 
-    await create_clock(connection, logger, clock_id, port, True, secret, "hmac", description)
-    error, code = await create_clock(connection, logger, clock_id, port, True, secret, "hmac", generate_secret(50), True)
+    await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", description)
+    error, code = await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", generate_secret(50), True)
 
     assert_equals(error, "Failed to create clock in database", "Wrong error message")
 
@@ -639,8 +661,31 @@ async def getnoise_sync(
         raise MumbleException("Missing database entry from putflag")
 
     await run_synchronization(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
-    
+
 @checker.getnoise(1)
+async def getnoise_time(
+    task: GetnoiseCheckerTaskMessage,
+    db: ChainDB,
+    connection: UdpConnection,
+    logger: LoggerAdapter,    
+) -> None:
+    try:
+        clock_id, port, secret = await db.get("userdata")
+        start_time, creation_time = await db.get("timedata")
+    except KeyError:
+        raise MumbleException("Missing database entry from putflag")
+    
+    last_time = start_time + get_time_ns() - creation_time
+
+    for _ in range(3):
+        current_time = await get_time(connection, logger, clock_id, port)
+
+        if current_time <= last_time:
+            raise MumbleException("Timejump detected")
+        
+        last_time = current_time
+
+@checker.getnoise(2)
 async def getnoise_user_description_twice(
     task: GetnoiseCheckerTaskMessage,
     db: ChainDB,
@@ -666,42 +711,6 @@ async def havoc_malformed_port_id(
     secret = generate_secret(50)
 
     await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", True)
-
-@checker.havoc(1)
-async def havoc_get_time(
-    task: HavocCheckerTaskMessage,
-    connection: UdpConnection,
-    logger: LoggerAdapter,    
-) -> None:
-    clock_id, port = generate_port_id()
-
-    last_time = 0
-
-    for _ in range(3):
-        current_time = await get_time(connection, logger, clock_id, port)
-
-        if current_time <= last_time:
-            raise MumbleException("Timejump detected")
-        
-        last_time = current_time
-
-@checker.havoc(2)
-async def havoc_sync(
-    task: HavocCheckerTaskMessage,
-    connection: UdpConnection,
-    logger: LoggerAdapter,    
-) -> None:
-    clock_id, port = generate_port_id()
-
-    last_time = 0
-
-    for _ in range(3):
-        current_time = await get_time(connection, logger, clock_id, port)
-
-        if current_time <= last_time:
-            raise MumbleException("Timejump detected")
-        
-        last_time = current_time
 
 @checker.exploit(0)
 async def exploit_memcmp(

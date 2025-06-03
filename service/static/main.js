@@ -1,5 +1,15 @@
 let ws;
 
+function pad(number, length) {
+    number = number.toString();
+
+    while (number.length < length) {
+        number = "0" + number;
+    }
+    
+    return number;
+}
+
 function notifySuccess(message) {
     const notificationBar = document.getElementById("notificationBar");
 
@@ -43,6 +53,8 @@ function inspectClock() {
 function createClock() {
     const clockId = document.getElementById("createClockId").value;
     const port = document.getElementById("createPort").value;
+    const time = document.getElementById("createTime").value;
+    const date = document.getElementById("createDate").value;
     const userDescription = document.getElementById("createUserDescription").value;
     const authenticationPolicy = document.getElementById("createAuthenticationPolicy").value;
     const visible = document.getElementById("createVisible").value == "visible";
@@ -53,8 +65,20 @@ function createClock() {
         return;
     }
 
-    // TODO: support other auth methods
-    const message = JSON.stringify({ task: "create_clock", clockId: clockId, port: port, visible: visible, authenticationPolicy: authenticationPolicy, userDescription: userDescription, secret: secret});
+    if (!time || !date) {
+        var offsetSeconds = 0;
+    } else {
+        const dateTime = new Date(date + "T" + time + "Z");
+
+        if (dateTime.getUTCFullYear() < 1970 || dateTime.getUTCFullYear() > 2037) {
+            notifyError("Start time/date out of range");
+            return;
+        }
+
+        var offsetSeconds = Math.floor(dateTime.getTime() / 1000);
+    }
+
+    const message = JSON.stringify({task: "create_clock", clockId: clockId, port: port, offsetSeconds: offsetSeconds, offsetNanoseconds: 0, visible: visible, authenticationPolicy: authenticationPolicy, userDescription: userDescription, secret: secret});
     sendMessage(message);
 }
 
@@ -77,6 +101,16 @@ function handleResponseGetClocks(response) {
         const tdPortId = document.createElement("td");
         tdPortId.textContent = port.clockId + "/" + port.port;
         row.appendChild(tdPortId);
+
+        const dateTime = new Date(port.time * 1000);
+
+        const tdDate = document.createElement("td");
+        tdDate.textContent = pad(dateTime.getUTCDate(), 2) + "." + pad(dateTime.getUTCMonth() + 1, 2) + "." + dateTime.getUTCFullYear();
+        row.appendChild(tdDate);
+
+        const tdTime = document.createElement("td");
+        tdTime.textContent = pad(dateTime.getUTCHours(), 2) + ":" + pad(dateTime.getUTCMinutes(), 2) + ":" + pad(dateTime.getUTCSeconds(), 2);
+        row.appendChild(tdTime);
 
         const tdCommand = document.createElement("td");
         const codeCommand = document.createElement("code");
@@ -181,6 +215,35 @@ function sendMessage(message) {
     }
 }
 
+function updateClocks() {
+    const table = document.getElementById("clockTable");
+
+    for (const row of table.childNodes) {
+        columns = row.childNodes
+
+        const tdDate = columns[1]
+        const tdTime = columns[2]
+
+        const date = columns[1].innerText
+        const time = columns[2].innerText
+
+        let dateTime = new Date();
+        dateTime.setUTCFullYear(date.split(".")[2])
+        dateTime.setUTCMonth(date.split(".")[1] - 1)
+        dateTime.setUTCDate(date.split(".")[0])
+        dateTime.setUTCHours(time.split(":")[0])
+        dateTime.setUTCMinutes(time.split(":")[1])
+        dateTime.setUTCSeconds(time.split(":")[2])
+
+        dateTime = new Date(dateTime.getTime() + 1000)
+
+        tdDate.textContent = pad(dateTime.getUTCDate(), 2) + "." + pad(dateTime.getUTCMonth() + 1, 2) + "." + dateTime.getUTCFullYear();
+        tdTime.textContent = pad(dateTime.getUTCHours(), 2) + ":" + pad(dateTime.getUTCMinutes(), 2) + ":" + pad(dateTime.getUTCSeconds(), 2);
+    }
+}
+
 window.onload = () => {
     openConnection(getClocks());
+
+    setInterval(updateClocks, 1000);
 };
