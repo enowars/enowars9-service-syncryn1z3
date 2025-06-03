@@ -207,7 +207,8 @@ async def _get_ws_client(task: BaseCheckerTaskMessage, logger: LoggerAdapter) ->
         client = await websockets.asyncio.client.connect(f"ws://{task.address}:{HTTP_PORT}/ws/", open_timeout=1, user_agent_header=fake_useragent.UserAgent().random)
     except TimeoutError:
         raise OfflineException("Websocket connection timeout")
-    except:
+    except Exception as e:
+        logger.debug(f"Websocket connection failed: {e}")
         raise OfflineException("Websocket connection failed")
     
     logger.debug(f"Websocket connected to {task.address}")
