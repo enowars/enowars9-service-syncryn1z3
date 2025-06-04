@@ -27,7 +27,7 @@ jobs:
     - name: Install enochecker_test
       run: |
         python -m pip install --upgrade pip
-        pip install enochecker-test
+        pip install git+ssh://git@github.com/enowars/enochecker_test_bf.git@bf-flags
     - name: start service
       run: |
         cd service
