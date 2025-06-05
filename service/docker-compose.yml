@@ -9,7 +9,6 @@ services:
     ports:
       - 319:319/udp
       - 320:320/udp
-      - 1234:1234
 
     restart: unless-stopped
 

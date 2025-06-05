@@ -33,7 +33,6 @@ from enochecker3 import (
     OfflineException,
     InternalErrorException,
     PutflagCheckerTaskMessage,
-    AsyncSocket,
 )
 from enochecker3.utils import assert_equals, assert_in, FlagSearcher
 
@@ -241,6 +240,8 @@ class WsClientPool:
                 except Exception as e:
                     self.logger.debug(f"Websocket connection failed: {e}")
                     raise OfflineException("Websocket connection failed")
+                
+                self.logger.debug(f"Created websocket client to {host}")
 
                 lock = asyncio.Lock()
                 timeout = now + random.randint(self.MIN_TIMEOUT, self.MAX_TIMEOUT)

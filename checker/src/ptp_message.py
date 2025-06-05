@@ -1,4 +1,11 @@
+import os
+
 import ptp_protocol
+
+from enochecker3 import (
+    MumbleException,
+    InternalErrorException,
+)
 
 class PtpMessage:
     def get_payload(self):
@@ -20,7 +27,7 @@ class PtpMessage:
         
         ret = ptp_protocol.lib.ptp_encode_message(buffer, self.decoded, buffer_size)
         if (ret < 0):
-            raise RuntimeError(f"Failed to encode message: {-ret}")
+            raise InternalErrorException(f"Failed to encode PTP message: {os.strerror(-ret)}")
         
         return ptp_protocol.ffi.buffer(buffer, ret)[:]
     
@@ -44,6 +51,6 @@ def from_buffer(buffer: bytes):
 
     ret = ptp_protocol.lib.ptp_decode_message(message.decoded, buffer, len(buffer))
     if (ret < 0):
-        raise RuntimeError(f"Failed to decode message: {-ret}")
+        raise MumbleException(f"Failed to decode PTP message: {os.strerror(-ret)}")
     
     return message

@@ -7,4 +7,4 @@ file(GLOB HEADERS *.h)
 
 add_library(ptp-security ${SOURCES} ${HEADERS})
 
-target_link_libraries(ptp-security PRIVATE OpenSSL::Crypto timing db)
+target_link_libraries(ptp-security PRIVATE OpenSSL::Crypto db)

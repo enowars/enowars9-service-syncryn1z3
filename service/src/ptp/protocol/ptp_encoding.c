@@ -501,7 +501,6 @@ int ptp_encode_message(uint8_t *output, struct ptp_decoded_message *input, short
 
     // Insert padding to align packet size
     if (actual_length + NETWORK_OVERHEAD % PTP_MESSAGE_ALIGNMENT) {
-        // TODO: Check for number of existing TLVs
         struct ptp_decoded_tlv pad_tlv;
         pad_tlv.type = PTP_TLV_TYPE_PAD;
         pad_tlv.payload.pad.length = -(actual_length + NETWORK_OVERHEAD + sizeof(struct ptp_encoded_tlv_header)) % PTP_MESSAGE_ALIGNMENT;

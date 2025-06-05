@@ -53,7 +53,6 @@ int main(int argc, char *argv[]) {
     state.config.ptp.clock_priority = 0;
     state.config.ptp.clock_quality.clock_class = PTP_CLOCK_CLASS_APPLICATION_SPECIFIC;
     state.config.ptp.clock_quality.clock_accuracy = PTP_CLOCK_ACCURACY_10_US;
-    state.config.ptp.clock_quality.offset_scaled_log_variance = 0; // TODO: Fix
 
     state.config.socket.loop = state.loop;
     state.config.socket.event_port = ptp_default_event_port;
