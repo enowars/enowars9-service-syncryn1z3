@@ -10,4 +10,4 @@ file(GLOB HEADERS *.h)
 add_library(socket ${SOURCES} ${HEADERS})
 
 target_include_directories(socket PUBLIC ${LIBUV_INCLUDE_DIRS})
-target_link_libraries(socket PRIVATE ${LIBUV_LIBRARIES})
+target_link_libraries(socket PRIVATE ${LIBUV_LIBRARIES} timing)

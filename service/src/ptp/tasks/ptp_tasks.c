@@ -176,7 +176,14 @@ static int ptp_handle_management_user_description_get(struct ptp_state *state, s
 
     tlv->type = PTP_TLV_TYPE_MANAGEMENT;
     tlv->payload.management.id = PTP_MANAGEMENT_ID_USER_DESCRIPTION;
-    strncpy(tlv->payload.management.payload.user_description, entry->user_description, PTP_USER_DESCRIPTION_SIZE);
+
+    if (entry->user_description_length < PTP_USER_DESCRIPTION_SIZE) {
+        tlv->payload.management.payload.user_description.length = entry->user_description_length;
+    } else {
+        tlv->payload.management.payload.user_description.length = PTP_USER_DESCRIPTION_SIZE;
+    }
+    
+    memcpy(tlv->payload.management.payload.user_description.data, entry->user_description, entry->user_description_length);
 
     return 0;
 }

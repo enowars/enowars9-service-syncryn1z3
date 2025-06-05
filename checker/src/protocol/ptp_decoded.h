@@ -35,7 +35,11 @@ struct ptp_decoded_clock_quality {
 */
 
 union ptp_decoded_management_tlv_payload {
-    char user_description[PTP_USER_DESCRIPTION_SIZE + 1];
+    struct {
+        short length;
+        uint8_t data[PTP_USER_DESCRIPTION_SIZE];
+    } user_description;
+    
     ptp_decoded_timestamp_t time;
 };
 

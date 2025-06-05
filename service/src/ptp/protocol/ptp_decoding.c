@@ -211,8 +211,8 @@ static int ptp_decode_management_tlv(struct ptp_decoded_management_tlv *output, 
                 return -EMSGSIZE;
             }
 
-            strncpy(output->payload.user_description, (char *)head, string_header->length);
-            output->payload.user_description[string_header->length] = '\0';
+            output->payload.user_description.length = string_header->length;
+            memcpy(output->payload.user_description.data, head, string_header->length);
 
             break;
         }

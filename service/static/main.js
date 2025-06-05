@@ -55,7 +55,7 @@ function createClock() {
     const port = document.getElementById("createPort").value;
     const time = document.getElementById("createTime").value;
     const date = document.getElementById("createDate").value;
-    const userDescription = document.getElementById("createUserDescription").value;
+    const userDescription = btoa(document.getElementById("createUserDescription").value);
     const authenticationPolicy = document.getElementById("createAuthenticationPolicy").value;
     const visible = document.getElementById("createVisible").value == "visible";
     const secret = document.getElementById("createSecret").value;
@@ -149,7 +149,9 @@ function handleResponseInspectClock(response) {
         list.appendChild(row);
     }
 
-    addRow("User description", response.userDescription);
+    const binaryUserDescription = new Uint8Array([...atob(response.userDescription)].map(char => char.charCodeAt(0)));
+
+    addRow("User description", new TextDecoder('utf-8').decode(binaryUserDescription));
     addRow("Authentication policy", (response.authenticationPolicy == "hmac") ? "HMAC" : "Plaintext (legacy)");
 }
 

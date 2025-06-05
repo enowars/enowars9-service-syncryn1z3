@@ -7,3 +7,4 @@ faker
 cffi
 fake_useragent
 python-lorem
+brainfuckery

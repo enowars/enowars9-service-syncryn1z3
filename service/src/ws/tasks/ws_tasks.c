@@ -14,6 +14,7 @@
 #include <ws/tasks/ws_tasks.h>
 #include <util/error.h>
 #include <util/time.h>
+#include <util/base64.h>
 
 #define WS_MAX_PAGE_SIZE 16
 #define WS_MAX_RESPONSE_SIZE 4096
@@ -242,7 +243,13 @@ int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_message *requ
         }
     }
 
-    if (!cJSON_AddStringToObject(response_json, "userDescription", entry->user_description)) {
+    char user_description_base64[(((DB_USER_DESCRIPTION_SIZE + 2) / 3) * 4) + 1];
+    ret = util_base64_encode(user_description_base64, entry->user_description, sizeof(user_description_base64), entry->user_description_length);
+    if (ret < 0) {
+        goto out;
+    }
+
+    if (!cJSON_AddStringToObject(response_json, "userDescription", user_description_base64)) {
         ret = -1;
         goto out;
     }
@@ -278,7 +285,13 @@ int ws_handle_task_create_clock(struct ws_state *state, struct ws_message *reque
     entry.offset = ((int64_t)offset_seconds_json->valuedouble) * 1000000000L + (int64_t)offset_nanoseconds_json->valuedouble - util_get_time_ns();
     entry.visible = cJSON_IsTrue(visible_json);
     strncpy(entry.secret, secret_json->valuestring, DB_SECRET_SIZE);
-    strncpy(entry.user_description, user_description_json->valuestring, DB_USER_DESCRIPTION_SIZE);
+
+    ret = util_base64_decode(entry.user_description, user_description_json->valuestring, DB_USER_DESCRIPTION_SIZE);
+    if (ret < 0) {
+        return ws_send_error(request, ret, "Base64 decoding failed");
+    }
+
+    entry.user_description_length = ret;
 
     if (!strcmp(authentication_policy_json->valuestring, "plain")) {
         entry.authentication_policy = PTP_AUTHENTICATION_POLICY_PLAIN;

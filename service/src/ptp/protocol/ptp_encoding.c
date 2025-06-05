@@ -215,7 +215,11 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
                 return -EMSGSIZE;
             }
 
-            string_header->length = strnlen(input->payload.user_description, PTP_USER_DESCRIPTION_SIZE);
+            string_header->length = input->payload.user_description.length;
+            if (string_header->length > PTP_USER_DESCRIPTION_SIZE) {
+                return -EMSGSIZE;
+            }
+
             total_length += sizeof(*string_header) + string_header->length;
             int actual_length = total_length + (total_length & 0x1); // Add padding to get 2-byte alignment
 
@@ -223,7 +227,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
                 return -EMSGSIZE;
             }
 
-            memcpy((char *)string_head, input->payload.user_description, string_header->length);
+            memcpy(string_head, input->payload.user_description.data, string_header->length);
 
             head += actual_length;
 

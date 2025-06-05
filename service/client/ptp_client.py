@@ -128,7 +128,7 @@ async def get_user_description(connection: Connection, clock_id: int, port: int,
     for tlv in response.get_tlvs():
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
-                return ptp_protocol.ffi.string(tlv.payload.management.payload.user_description).decode()
+                return ptp_protocol.ffi.buffer(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)[:].decode()
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
             raise PtpException(f"Received error from server: {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
 

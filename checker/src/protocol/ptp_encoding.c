@@ -215,7 +215,11 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
                 return -EMSGSIZE;
             }
 
-            string_header->length = strnlen(input->payload.user_description, PTP_USER_DESCRIPTION_SIZE);
+            string_header->length = input->payload.user_description.length;
+            if (string_header->length > PTP_USER_DESCRIPTION_SIZE) {
+                return -EMSGSIZE;
+            }
+
             total_length += sizeof(*string_header) + string_header->length;
             int actual_length = total_length + (total_length & 0x1); // Add padding to get 2-byte alignment
 
@@ -223,7 +227,7 @@ static int ptp_encode_management_tlv(uint8_t **output, struct ptp_decoded_manage
                 return -EMSGSIZE;
             }
 
-            memcpy((char *)string_head, input->payload.user_description, string_header->length);
+            memcpy(string_head, input->payload.user_description.data, string_header->length);
 
             head += actual_length;
 
@@ -501,7 +505,6 @@ int ptp_encode_message(uint8_t *output, struct ptp_decoded_message *input, short
 
     // Insert padding to align packet size
     if (actual_length + NETWORK_OVERHEAD % PTP_MESSAGE_ALIGNMENT) {
-        // TODO: Check for number of existing TLVs
         struct ptp_decoded_tlv pad_tlv;
         pad_tlv.type = PTP_TLV_TYPE_PAD;
         pad_tlv.payload.pad.length = -(actual_length + NETWORK_OVERHEAD + sizeof(struct ptp_encoded_tlv_header)) % PTP_MESSAGE_ALIGNMENT;
