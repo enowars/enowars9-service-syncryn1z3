@@ -24,6 +24,48 @@ function notifyError(message) {
     notificationBar.className = "error";
 }
 
+function validateInput(clockId, port, secret) {
+    if (!clockId) {
+        throw "Please enter a clock ID";
+    }
+
+    try {
+        parsedClockId = BigInt("0x" + clockId)
+    } catch {
+        throw "Clock ID must be a hexadecimal number";
+    }
+
+    if (parsedClockId <= 0n) {
+        throw "Clock ID must be greater than 0";
+    }
+
+    if (parsedClockId >= 0xffffffffffffffffn) {
+        throw "Clock ID must be smaller than 2^64 - 1";
+    }
+
+    if (!port) {
+        throw "Please enter a port";
+    }
+
+    try {
+        parsedPort = BigInt("0x" + port)
+    } catch {
+        throw "Port must be a hexadecimal number";
+    }
+
+    if (parsedPort <= 0n) {
+        throw "Port must be greater than 0";
+    }
+
+    if (parsedPort >= 0xffffn) {
+        throw "Port must be smaller than 2^16 - 1";
+    }
+
+    if (secret && secret.match(/[0-9]+/) == null) {
+        throw "Secret must only contain numeric characters";
+    }
+}
+
 function getClocks() {
     const message = JSON.stringify({task: "get_clocks", length: 10});
     sendMessage(message);
@@ -34,8 +76,10 @@ function inspectClock() {
     const port = document.getElementById("inspectPort").value;
     const secret = document.getElementById("inspectSecret").value;
 
-    if (!clockId || !port) {
-        notifyError("Please enter both clock ID and port");
+    try {
+        validateInput(clockId, port, null)
+    } catch (e) {
+        notifyError(e);
         return;
     }
 
@@ -60,8 +104,10 @@ function createClock() {
     const visible = document.getElementById("createVisible").value == "visible";
     const secret = document.getElementById("createSecret").value;
 
-    if (!clockId || !port) {
-        notifyError("Please enter both clock ID and port");
+    try {
+        validateInput(clockId, port, secret)
+    } catch (e) {
+        notifyError(e);
         return;
     }
 

