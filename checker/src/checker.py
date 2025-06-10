@@ -1101,7 +1101,7 @@ async def exploit_timing(
         durations[durations > np.median(durations) + 5000] = 0
 
         guess = string.digits[np.argmax(durations)].encode("ascii")
-        avg_duration = np.sum(durations) / len(durations)
+        avg_duration = np.sum(durations) / np.count_nonzero(durations)
 
         return guess, avg_duration, None
     
