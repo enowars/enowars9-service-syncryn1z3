@@ -560,11 +560,17 @@ async def request_unicast_message(connection: UdpConnection, logger: LoggerAdapt
     finalize_auth_tlvs(request, secret=secret)
 
     connection.send_raw(request, EVENT_PORT)
-    response = await connection.receive(EVENT_PORT)
+    signaling_response = await connection.receive(EVENT_PORT)
+    actual_response = await connection.receive(EVENT_PORT)
 
-    for tlv in response.get_tlvs():
+    # Packets may arrive out of order
+    if signaling_response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_SIGNALING:
+        logger.debug("Packets arrived out of order")
+        signaling_response, actual_response = actual_response, signaling_response
+
+    for tlv in signaling_response.get_tlvs():
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_GRANT_UNICAST_TRANSMISSION:
-            return
+            return actual_response
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
             raise MumbleException(f"Received error from server: {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
 
@@ -573,9 +579,7 @@ async def request_unicast_message(connection: UdpConnection, logger: LoggerAdapt
 async def run_synchronization(connection: UdpConnection, logger: LoggerAdapter, clock_id: int, port: int, secret: bytes, policy: str):
     logger.debug(f"Run synchronization (port_id: {encode_port_id(clock_id, port)}, secret: {secret}, policy: {policy})")
 
-    await request_unicast_message(connection, logger, clock_id, port, secret, policy, ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
-
-    sync = await connection.receive(EVENT_PORT)
+    sync = await request_unicast_message(connection, logger, clock_id, port, secret, policy, ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
 
     if sync.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC:
         raise MumbleException("Expected sync message")
