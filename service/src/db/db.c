@@ -41,6 +41,9 @@ int db_setup(struct db_state *state, struct db_config *config) {
         return -1;
     }
 
+    // Set busy timeout to avoid conflicts with cleanup script
+    sqlite3_busy_timeout(state->handle, 2000);
+
     const char *create_query =
         "CREATE TABLE IF NOT EXISTS\n"
         "ports(clock_id INTEGER NOT NULL, port INTEGER NOT NULL, offset INTEGER, visible BOOLEAN, authentication_policy INTEGER, secret TEXT, user_description BLOB, creation_time DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(clock_id, port));";
