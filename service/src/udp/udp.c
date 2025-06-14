@@ -7,15 +7,15 @@
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 
-#include <socket/socket.h>
+#include <udp/udp.h>
 #include <common/common_types.h>
 #include <util/error.h>
 
-static int send_message(struct socket_state *state) {
+static int udp_send_message(struct udp_state *state) {
     int ret;
     
     struct common_message_info *info;
-    struct socket_instance *instance;
+    struct udp_instance *instance;
 
     ret = state->config->dequeue_callback(state->config->user_ptr, &info);
     if (ret) {
@@ -26,7 +26,7 @@ static int send_message(struct socket_state *state) {
         return ret;
     }
 
-    if (info->port_type >= SOCKET_INSTANCE_NUM) {
+    if (info->port_type >= UDP_INSTANCE_NUM) {
         ret = -EINVAL;
         goto out;
     }
@@ -52,7 +52,7 @@ out:
     return ret;
 }
 
-static int receive_message(struct socket_state *state, struct socket_instance *instance) {
+static int udp_receive_message(struct udp_state *state, struct udp_instance *instance) {
     int ret;
     
     struct common_message_info *info = util_mempool_get(&state->mempool);
@@ -82,22 +82,22 @@ static int receive_message(struct socket_state *state, struct socket_instance *i
     return 0;
 }
 
-static void socket_poll(uv_poll_t* handle, int status, int events) {
+static void udp_poll(uv_poll_t* handle, int status, int events) {
     int ret;
-    struct socket_instance *instance = (struct socket_instance *)handle->data;
+    struct udp_instance *instance = (struct udp_instance *)handle->data;
 
     if (!(events & UV_READABLE)) {
         return;
     }
 
-    receive_message(instance->state, instance);
+    udp_receive_message(instance->state, instance);
 
     do {
-        ret = send_message(instance->state);
+        ret = udp_send_message(instance->state);
     } while (!ret);
 }
 
-static int socket_setup_port(struct socket_state *state, struct socket_instance *instance) {
+static int udp_setup_port(struct udp_state *state, struct udp_instance *instance) {
     int ret;
 
     instance->state = state;
@@ -142,7 +142,7 @@ static int socket_setup_port(struct socket_state *state, struct socket_instance 
 
     instance->handle.data = instance;
 
-    ret = uv_poll_start(&instance->handle, UV_READABLE, socket_poll);
+    ret = uv_poll_start(&instance->handle, UV_READABLE, udp_poll);
     if (ret) {
         util_error(ret, "Failed to start uv poll");
     }
@@ -155,7 +155,7 @@ out:
     return ret;
 }
 
-int socket_setup(struct socket_state *state, struct socket_config *config) {
+int udp_setup(struct udp_state *state, struct udp_config *config) {
     int ret;
 
     memset(state, 0, sizeof(*state));
@@ -163,14 +163,14 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
 
     state->instances[COMMON_PORT_TYPE_EVENT].port = state->config->event_port;
     state->instances[COMMON_PORT_TYPE_EVENT].port_type = COMMON_PORT_TYPE_EVENT;
-    ret = socket_setup_port(state, &state->instances[COMMON_PORT_TYPE_EVENT]);
+    ret = udp_setup_port(state, &state->instances[COMMON_PORT_TYPE_EVENT]);
     if (ret) {
         return ret;
     }
 
     state->instances[COMMON_PORT_TYPE_GENERAL].port = state->config->general_port;
     state->instances[COMMON_PORT_TYPE_GENERAL].port_type = COMMON_PORT_TYPE_GENERAL;
-    ret = socket_setup_port(state, &state->instances[COMMON_PORT_TYPE_GENERAL]);
+    ret = udp_setup_port(state, &state->instances[COMMON_PORT_TYPE_GENERAL]);
     if (ret) {
         return ret;
     }
@@ -178,10 +178,10 @@ int socket_setup(struct socket_state *state, struct socket_config *config) {
     return 0;
 }
 
-int socket_cleanup(struct socket_state *state) {
+int udp_cleanup(struct udp_state *state) {
     int ret;
 
-    for (int i = 0; i < SOCKET_INSTANCE_NUM; ++i) {
+    for (int i = 0; i < UDP_INSTANCE_NUM; ++i) {
         ret = close(state->instances[i].fd);
         if (ret) {
             return ret;

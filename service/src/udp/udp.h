@@ -9,9 +9,9 @@
 #include <common/common_types.h>
 #include <util/mempool.h>
 
-#define SOCKET_INSTANCE_NUM 2 
+#define UDP_INSTANCE_NUM 2 
 
-struct socket_config {
+struct udp_config {
     uv_loop_t *loop;
 
     uint16_t event_port;
@@ -23,18 +23,18 @@ struct socket_config {
     void *user_ptr;
 };
 
-struct socket_state {
-    struct socket_config *config;
+struct udp_state {
+    struct udp_config *config;
 
-    struct socket_instance {
-        struct socket_state *state;
+    struct udp_instance {
+        struct udp_state *state;
 
         uv_poll_t handle;
         int fd;
         
         uint16_t port;
         enum common_port_type port_type;
-    } instances[SOCKET_INSTANCE_NUM];
+    } instances[UDP_INSTANCE_NUM];
 
     pthread_t thread;
     volatile bool exit_flag;
@@ -44,5 +44,5 @@ struct socket_state {
     struct util_mempool mempool;
 };
 
-int socket_setup(struct socket_state *state, struct socket_config *config);
-int socket_cleanup(struct socket_state *state);
+int udp_setup(struct udp_state *state, struct udp_config *config);
+int udp_cleanup(struct udp_state *state);

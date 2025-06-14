@@ -6,13 +6,13 @@
 #include <ptp/ptp.h>
 #include <ptp/ptp_defaults.h>
 #include <db/db.h>
-#include <socket/socket.h>
+#include <udp/udp.h>
 #include <ws/ws.h>
 
 struct main_config {
     struct db_config db;
     struct ptp_config ptp;
-    struct socket_config socket;
+    struct udp_config socket;
     struct ws_config ws;
 };
 
@@ -21,7 +21,7 @@ struct main_state {
 
     struct db_state db;
     struct ptp_state ptp;
-    struct socket_state socket;
+    struct udp_state socket;
     struct ws_state ws;
 
     uv_loop_t *loop;
@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
         return -ret;
     }
 
-    ret = socket_setup(&state.socket, &state.config.socket);
+    ret = udp_setup(&state.socket, &state.config.socket);
     if (ret) {
         return -ret;
     }
@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) {
         return -ret;
     }
 
-    ret = socket_cleanup(&state.socket);
+    ret = udp_cleanup(&state.socket);
     if (ret) {
         return -ret;
     }
