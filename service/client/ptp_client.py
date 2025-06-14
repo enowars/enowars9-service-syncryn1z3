@@ -66,6 +66,13 @@ class Connection:
         message = ptp_message.from_buffer(response)
 
         return message
+    
+class AuthInfo:
+    def __init__(self, clock_id: int, port: int, secret: str, policy = "hmac"):
+        self.clock_id = clock_id
+        self.port = port
+        self.secret = secret
+        self.policy = policy
 
 """
 Utility functions
@@ -80,47 +87,58 @@ def generate_port_id():
 
     return clock_id, port
 
-def add_auth_tlv(message):
+def policy_to_int(policy: str):
+    if policy == "hmac":
+        return ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_HMAC_128
+    elif policy == "plain":
+        return ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_PLAIN
+
+def add_auth_tlv(message, auth_info: AuthInfo):
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION)
-    tlv.payload.authentication.policy = ptp_protocol.lib.PTP_AUTHENTICATION_POLICY_HMAC_128
+    tlv.payload.authentication.policy = policy_to_int(auth_info.policy)
     tlv.payload.authentication.parameter_indicator = 0
     tlv.payload.authentication.key_id = 0
-    tlv.payload.authentication.icv_length = 16
+
+    if auth_info.policy == "hmac":
+        tlv.payload.authentication.icv_length = 16
+    elif auth_info.policy == "plain":
+        tlv.payload.authentication.icv_length = 100
     
-def finalize_auth_tlv(tlv, request, secret=b""):
+def finalize_auth_tlv(tlv, request, auth_info: AuthInfo):
     if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
         return
 
     buffer_address = ptp_protocol.ffi.cast("uint8_t *", ptp_protocol.ffi.addressof(ptp_protocol.ffi.from_buffer(request)))
     icv_address = tlv.payload.authentication.icv
-    icv = hmac.new(secret, bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
+    
+    if tlv.payload.authentication.policy == policy_to_int("hmac"):
+        icv = hmac.new(auth_info.secret.encode("ascii") + b'\x00' * (100 - len(auth_info.secret)), bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
+    elif tlv.payload.authentication.policy == policy_to_int("plain"):
+        icv = auth_info.secret.encode("ascii") + b'\0'
 
     ptp_protocol.ffi.memmove(icv_address, icv[:tlv.payload.authentication.icv_length], tlv.payload.authentication.icv_length)
 
-def finalize_auth_tlvs(request, secret=b""):
+def finalize_auth_tlvs(request, auth_info: AuthInfo):
     message = ptp_message.from_buffer(request)
 
     for tlv in message.get_tlvs():
-        finalize_auth_tlv(tlv, request, secret)
+        finalize_auth_tlv(tlv, request, auth_info)
 
-async def get_user_description(connection: Connection, clock_id: int, port: int, secret: str):
-    secret = secret.encode("utf-8")
-    secret = secret + b'\x00' * (100 - len(secret))
-
+async def get_user_description(connection: Connection, auth_info: AuthInfo):
     local_clock_id, local_port = generate_port_id()
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
 
     payload = message.get_payload()
-    payload.management.target_port_id.clock_id = clock_id
-    payload.management.target_port_id.port = port
+    payload.management.target_port_id.clock_id = auth_info.clock_id
+    payload.management.target_port_id.port = auth_info.port
     payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
 
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
     tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
 
-    add_auth_tlv(message)
+    add_auth_tlv(message, auth_info)
     request = message.encode(connection.BUFFER_SIZE)
-    finalize_auth_tlvs(request, secret=secret)
+    finalize_auth_tlvs(request, auth_info)
 
     connection.send_raw(request, GENERAL_PORT)
     response = await connection.receive(GENERAL_PORT)
@@ -134,25 +152,22 @@ async def get_user_description(connection: Connection, clock_id: int, port: int,
 
     raise PtpException("Received no description")
 
-async def request_unicast_message(connection: Connection, clock_id: int, port: int, secret: str, type: int):
-    secret = secret.encode("utf-8")
-    secret = secret + b'\x00' * (100 - len(secret))
-
+async def request_unicast_message(connection: Connection, auth_info: AuthInfo, type: int):
     local_clock_id, local_port = generate_port_id()
     message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_SIGNALING, local_clock_id, local_port, 0)
 
     payload = message.get_payload()
-    payload.signaling.target_port_id.clock_id = clock_id
-    payload.signaling.target_port_id.port = port
+    payload.signaling.target_port_id.clock_id = auth_info.clock_id
+    payload.signaling.target_port_id.port = auth_info.port
 
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_REQUEST_UNICAST_TRANSMISSION)
     tlv.payload.request_unicast.type = type
     tlv.payload.request_unicast.log_message_interval = 0
     tlv.payload.request_unicast.duration = 0
 
-    add_auth_tlv(message)
+    add_auth_tlv(message, auth_info)
     request = message.encode(connection.BUFFER_SIZE)
-    finalize_auth_tlvs(request, secret=secret)
+    finalize_auth_tlvs(request, auth_info)
 
     connection.send_raw(request, EVENT_PORT)
     response = await connection.receive(EVENT_PORT)
@@ -165,8 +180,8 @@ async def request_unicast_message(connection: Connection, clock_id: int, port: i
 
     raise PtpException("Received no unicast transmission grant")
 
-async def get_offset(connection: Connection, clock_id: int, port: int, secret: str):
-    await request_unicast_message(connection, clock_id, port, secret, ptp_protocol.lib.PTP_MESSAGE_TYPE_ANNOUNCE)
+async def get_offset(connection: Connection, auth_info: AuthInfo):
+    await request_unicast_message(connection, auth_info, ptp_protocol.lib.PTP_MESSAGE_TYPE_ANNOUNCE)
 
     announce = await connection.receive(EVENT_PORT)
 
@@ -179,8 +194,8 @@ async def get_offset(connection: Connection, clock_id: int, port: int, secret: s
     
     return offset_tlv.payload.alternate_time_offset_indicator.current_offset * 1000000000
 
-async def run_synchronization(connection: Connection, clock_id: int, port: int, secret: str):
-    await request_unicast_message(connection, clock_id, port, secret, ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
+async def run_synchronization(connection: Connection, auth_info: AuthInfo):
+    await request_unicast_message(connection, auth_info, ptp_protocol.lib.PTP_MESSAGE_TYPE_SYNC)
 
     sync = await connection.receive(EVENT_PORT)
 
@@ -240,14 +255,22 @@ async def main():
 
     connection = await create_connections(args)
 
-    description = await get_user_description(connection, args.clock_id, args.port, args.secret)
+    auth_info = AuthInfo(args.clock_id, args.port, args.secret)
+
+    try:
+        description = await get_user_description(connection, auth_info)
+    except PtpException:
+        # Retry with legacy auth policy
+        auth_info.policy = "plain"
+        description = await get_user_description(connection, auth_info)
+
     print(f"Connected to clock: {args.clock_id:x}/{args.port:x}")
     print(f"Description: {description}")
 
-    offset = await get_offset(connection, args.clock_id, args.port, args.secret)
+    offset = await get_offset(connection, auth_info)
 
     for _ in range(args.syncs):
-        error = await run_synchronization(connection, args.clock_id, args.port, args.secret)
+        error = await run_synchronization(connection, auth_info)
 
         current_time_ns = get_time_ns() + error + offset
         timestamp_seconds = math.floor(current_time_ns / 1000000000)
