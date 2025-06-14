@@ -139,28 +139,6 @@ int ws_handle_task_get_clocks(struct ws_state *state, struct ws_message *request
             goto out;
         }
 
-        switch (entries[i]->authentication_policy) {
-            case PTP_AUTHENTICATION_POLICY_PLAIN: {
-                if (!cJSON_AddStringToObject(port_json, "authenticationPolicy", "plain")) {
-                    cJSON_Delete(port_json);
-                    ret = -1;
-                    goto out;
-                }
-
-                break;
-            }
-
-            case PTP_AUTHENTICATION_POLICY_HMAC_128: {
-                if (!cJSON_AddStringToObject(port_json, "authenticationPolicy", "hmac")) {
-                    cJSON_Delete(port_json);
-                    ret = -1;
-                    goto out;
-                }
-
-                break;
-            }
-        }
-
         cJSON_AddItemToArray(ports_json, port_json);       
     }
 
