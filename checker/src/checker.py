@@ -90,7 +90,7 @@ def encode_flag(flag: str, logger: LoggerAdapter):
 def decode_flag(flag: bytes, logger: LoggerAdapter):
     try:
         if flag.startswith(b"zlib"):
-            return bf.decode(flag.lstrip(b"zlib"))
+            return bf.decode(flag[4:])
         else:
             return flag.decode()
     except Exception as e:

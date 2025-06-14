@@ -6,6 +6,7 @@ import hashlib
 import argparse
 import math
 import datetime
+import zlib
 
 import ptp_protocol
 import ptp_message
@@ -143,14 +144,26 @@ async def get_user_description(connection: Connection, auth_info: AuthInfo):
     connection.send_raw(request, GENERAL_PORT)
     response = await connection.receive(GENERAL_PORT)
 
+    buffer = None
+
     for tlv in response.get_tlvs():
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
-                return ptp_protocol.ffi.buffer(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)[:].decode()
+                buffer = ptp_protocol.ffi.buffer(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)[:]
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
             raise PtpException(f"Received error from server: {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
+        
+    if buffer is None:
+        raise PtpException("Received no description")
+    
+    # Decode compressed description
+    if buffer.startswith(b"zlib"):
+        try:
+            return zlib.decompress(buffer[4:]).decode()
+        except zlib.error:
+            pass
 
-    raise PtpException("Received no description")
+    return buffer.decode()
 
 async def request_unicast_message(connection: Connection, auth_info: AuthInfo, type: int):
     local_clock_id, local_port = generate_port_id()
