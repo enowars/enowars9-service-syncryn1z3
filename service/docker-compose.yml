@@ -25,5 +25,7 @@ services:
     depends_on:
       - syncryn1z3-ptp
 
+    restart: unless-stopped
+
     mem_limit: 500m
     cpus: 0.1

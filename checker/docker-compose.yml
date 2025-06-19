@@ -39,3 +39,4 @@ services:
       nproc:
         soft: 4000
         hard: 4000
+    restart: unless-stopped
