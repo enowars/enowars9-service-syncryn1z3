@@ -7,20 +7,20 @@
 struct sqlite3;
 
 #define DB_SECRET_SIZE 100
-#define DB_USER_DESCRIPTION_SIZE 1500
+#define DB_USER_DESCRIPTION_SIZE 3000
 
 struct db_entry {
+    enum ptp_authentication_policy authentication_policy;
     struct ptp_decoded_port_id port_id;
-    int64_t offset;
 
+    int64_t offset;
     bool valid;
     bool visible;
 
-    enum ptp_authentication_policy authentication_policy;
-    char secret[DB_SECRET_SIZE];
-    
     short user_description_length;
     uint8_t user_description[DB_USER_DESCRIPTION_SIZE];
+
+    char secret[DB_SECRET_SIZE];
 };
 
 struct db_config {

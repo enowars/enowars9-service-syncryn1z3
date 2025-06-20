@@ -198,7 +198,14 @@ function handleResponseInspectClock(response) {
     const binaryUserDescription = new Uint8Array([...atob(response.userDescription)].map(char => char.charCodeAt(0)));
 
     addRow("User description", new TextDecoder('utf-8').decode(binaryUserDescription));
-    addRow("Authentication policy", (response.authenticationPolicy == "hmac") ? "HMAC" : "Plaintext (legacy)");
+
+    if (response.authenticationPolicy == "none") {
+        addRow("Authentication policy", "None (unsecured)");
+    } if (response.authenticationPolicy == "plain") {
+        addRow("Authentication policy", "Plaintext (legacy)");
+    } else if (response.authenticationPolicy == "hmac") {
+        addRow("Authentication policy", "HMAC");
+    }
 }
 
 function handleResponseCreateClock(response) {

@@ -175,9 +175,11 @@ int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_message *requ
         return ws_send_error(request, ret, "Invisible clock");
     }
 
-    ret = strncmp(entry->secret, secret_json->valuestring, DB_SECRET_SIZE);
-    if (ret) {
-        return ws_send_error(request, ret, "Wrong secret");
+    if (entry->authentication_policy != PTP_AUTHENTICATION_POLICY_NONE) {
+        ret = strncmp(entry->secret, secret_json->valuestring, DB_SECRET_SIZE);
+        if (ret) {
+            return ws_send_error(request, ret, "Wrong secret");
+        }
     }
 
     cJSON *response_json = cJSON_CreateObject();
@@ -202,6 +204,15 @@ int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_message *requ
     }
 
     switch (entry->authentication_policy) {
+        case PTP_AUTHENTICATION_POLICY_NONE: {
+            if (!cJSON_AddStringToObject(response_json, "authenticationPolicy", "none")) {
+                ret = -1;
+                goto out;
+            }
+
+            break;
+        }
+
         case PTP_AUTHENTICATION_POLICY_PLAIN: {
             if (!cJSON_AddStringToObject(response_json, "authenticationPolicy", "plain")) {
                 ret = -1;
@@ -271,7 +282,9 @@ int ws_handle_task_create_clock(struct ws_state *state, struct ws_message *reque
 
     entry.user_description_length = ret;
 
-    if (!strcmp(authentication_policy_json->valuestring, "plain")) {
+    if (!strcmp(authentication_policy_json->valuestring, "none")) {
+        entry.authentication_policy = PTP_AUTHENTICATION_POLICY_NONE;
+    } else if (!strcmp(authentication_policy_json->valuestring, "plain")) {
         entry.authentication_policy = PTP_AUTHENTICATION_POLICY_PLAIN;
     } else if (!strcmp(authentication_policy_json->valuestring, "hmac")) {
         entry.authentication_policy = PTP_AUTHENTICATION_POLICY_HMAC_128;

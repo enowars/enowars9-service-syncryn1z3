@@ -46,7 +46,7 @@ int db_setup(struct db_state *state, struct db_config *config) {
 
     const char *create_query =
         "CREATE TABLE IF NOT EXISTS\n"
-        "ports(clock_id INTEGER NOT NULL, port INTEGER NOT NULL, offset INTEGER, visible BOOLEAN, authentication_policy INTEGER, secret TEXT, user_description BLOB, creation_time DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(clock_id, port));";
+        "ports(clock_id INTEGER NOT NULL, port INTEGER NOT NULL, authentication_policy INTEGER, offset INTEGER, visible BOOLEAN, user_description BLOB, secret TEXT, creation_time DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(clock_id, port));";
 
     ret = sqlite3_exec(state->handle, create_query, 0, 0, &error_message);
     if (ret != SQLITE_OK) {
@@ -92,7 +92,7 @@ int db_get(struct db_state *state, struct db_entry **entry, struct ptp_decoded_p
     }
 
     const char *select_query =
-        "SELECT offset, visible, authentication_policy, secret, user_description, length(user_description) FROM ports\n"
+        "SELECT authentication_policy, offset, visible, user_description, length(user_description), secret FROM ports\n"
         "WHERE (clock_id==? AND port==?);";
 
     ret = sqlite3_prepare_v2(state->handle, select_query, -1, &statement, 0);
@@ -119,12 +119,12 @@ int db_get(struct db_state *state, struct db_entry **entry, struct ptp_decoded_p
     (*entry)->port_id.clock_id = port_id.clock_id;
     (*entry)->port_id.port = port_id.port;
     (*entry)->valid = true;
-    (*entry)->offset = sqlite3_column_int64(statement, 0);
-    (*entry)->visible = sqlite3_column_int(statement, 1);
-    (*entry)->authentication_policy = sqlite3_column_int(statement, 2);
-    strncpy((*entry)->secret, (const char *)sqlite3_column_text(statement, 3), DB_SECRET_SIZE);
-    (*entry)->user_description_length = sqlite3_column_int(statement, 5);
-    memcpy((*entry)->user_description, sqlite3_column_blob(statement, 4), (*entry)->user_description_length);
+    (*entry)->authentication_policy = sqlite3_column_int(statement, 0);
+    (*entry)->offset = sqlite3_column_int64(statement, 1);
+    (*entry)->visible = sqlite3_column_int(statement, 2);
+    (*entry)->user_description_length = sqlite3_column_int(statement, 4);
+    memcpy((*entry)->user_description, sqlite3_column_blob(statement, 3), (*entry)->user_description_length);
+    strcpy((*entry)->secret, (const char *)sqlite3_column_text(statement, 5));
 
     ret = sqlite3_step(statement);
     if (ret != SQLITE_DONE) {
@@ -147,7 +147,7 @@ int db_get_recent(struct db_state *state, struct db_entry **entries, short lengt
     sqlite3_stmt *statement;
 
     const char *select_query =
-        "SELECT clock_id, port, offset, visible, authentication_policy, secret, user_description, length(user_description) FROM ports\n"
+        "SELECT clock_id, port, authentication_policy, offset, visible, user_description, length(user_description), secret FROM ports\n"
         "WHERE visible\n"
         "ORDER BY creation_time DESC LIMIT ?;";
 
@@ -181,12 +181,12 @@ int db_get_recent(struct db_state *state, struct db_entry **entries, short lengt
         entries[i] = &state->cache[db_hash(port_id)];
         entries[i]->port_id = port_id;
         entries[i]->valid = true;
-        entries[i]->offset = sqlite3_column_int64(statement, 2);
-        entries[i]->visible = sqlite3_column_int(statement, 3);
-        entries[i]->authentication_policy = sqlite3_column_int(statement, 4);
-        strncpy(entries[i]->secret, (const char *)sqlite3_column_text(statement, 5), DB_SECRET_SIZE);
-        entries[i]->user_description_length = sqlite3_column_int(statement, 7);
-        memcpy(entries[i]->user_description, sqlite3_column_blob(statement, 6), entries[i]->user_description_length);
+        entries[i]->authentication_policy = sqlite3_column_int(statement, 2);
+        entries[i]->offset = sqlite3_column_int64(statement, 3);
+        entries[i]->visible = sqlite3_column_int(statement, 4);
+        entries[i]->user_description_length = sqlite3_column_int(statement, 6);
+        memcpy(entries[i]->user_description, sqlite3_column_blob(statement, 5), entries[i]->user_description_length);
+        strcpy(entries[i]->secret, (const char *)sqlite3_column_text(statement, 7));
     }
 
     ret = 0;
@@ -215,7 +215,7 @@ int db_set(struct db_state *state, struct db_entry *entry) {
     state->cache[db_hash(entry->port_id)].valid = false;
 
     const char *insert_query =
-        "INSERT INTO ports(clock_id, port, offset, visible, authentication_policy, secret, user_description)\n"
+        "INSERT INTO ports(clock_id, port, authentication_policy, offset, visible, user_description, secret)\n"
         "VALUES (?, ?, ?, ?, ?, ?, ?);";
 
     ret = sqlite3_prepare_v2(state->handle, insert_query, -1, &statement, 0);
@@ -226,11 +226,11 @@ int db_set(struct db_state *state, struct db_entry *entry) {
 
     sqlite3_bind_int64(statement, 1, entry->port_id.clock_id);
     sqlite3_bind_int(statement, 2, entry->port_id.port);
-    sqlite3_bind_int64(statement, 3, entry->offset);
-    sqlite3_bind_int(statement, 4, entry->visible);
-    sqlite3_bind_int(statement, 5, entry->authentication_policy);
-    sqlite3_bind_text(statement, 6, entry->secret, DB_SECRET_SIZE, NULL);
-    sqlite3_bind_blob(statement, 7, entry->user_description, entry->user_description_length, NULL);
+    sqlite3_bind_int(statement, 3, entry->authentication_policy);
+    sqlite3_bind_int64(statement, 4, entry->offset);
+    sqlite3_bind_int(statement, 5, entry->visible);
+    sqlite3_bind_blob(statement, 6, entry->user_description, entry->user_description_length, NULL);
+    sqlite3_bind_text(statement, 7, entry->secret, DB_SECRET_SIZE, NULL);
 
     ret = sqlite3_step(statement);
     if (ret != SQLITE_DONE) {

