@@ -16,7 +16,6 @@ import lorem
 import time
 import base64
 import binascii
-import re
 import numpy as np
 
 from logging import LoggerAdapter
@@ -37,7 +36,7 @@ from enochecker3 import (
     InternalErrorException,
     PutflagCheckerTaskMessage,
 )
-from enochecker3.utils import assert_equals, assert_in, FlagSearcher
+from enochecker3.utils import assert_equals, FlagSearcher
 
 import ptp_protocol
 import ptp_message
@@ -79,7 +78,7 @@ Flag functions
 def encode_flag(flag: str, logger: LoggerAdapter):
     try:
         # Extra logic to compress brainfuck flags
-        if re.fullmatch(r"[+\-<>\[\]\.]{280,580}", flag) is not None:
+        if bf.is_bf(flag):
             return b"zlib" + bf.encode(flag)
         else:
             return flag.encode("utf-8")
@@ -87,16 +86,24 @@ def encode_flag(flag: str, logger: LoggerAdapter):
         logger.debug(f"Failed to encode flag: {flag} (Exception: {e})")
         return InternalErrorException("Failed to encode flag")
     
-def decode_flag(flag: bytes, logger: LoggerAdapter):
+def decode_flag(flag: bytes, logger: LoggerAdapter, reencode=False):
     try:
         if flag.startswith(b"zlib"):
-            return bf.decode(flag[4:])
+            return bf.decode(flag[4:], reencode)
         else:
             return flag.decode()
     except Exception as e:
         logger.debug(f"Failed to decode flag: {flag} (Exception: {e})")
         return MumbleException("Failed to decode flag")
 
+def compare_flag(expected: str, response: str):
+    if expected == response:
+        return
+
+    if bf.compare(expected, response):
+        return
+    
+    raise MumbleException("Received wrong flag")
 
 """
 Utility functions
@@ -692,7 +699,7 @@ async def getflag_visible(
     received_description = await inspect_clock(connection, logger, clock_id, port, secret)
     received_flag = decode_flag(received_description[prefix_length:], logger)
 
-    assert_equals(received_flag, task.flag, "Received wrong flag")
+    compare_flag(task.flag, received_flag)
 
 @checker.getflag(1)
 async def getflag_hmac(
@@ -711,7 +718,7 @@ async def getflag_hmac(
         raise MumbleException("Received no USER_DESCRIPTION TLV")
     
     received_flag = decode_flag(received_description, logger)
-    assert_equals(received_flag, task.flag, "Received wrong flag")
+    compare_flag(task.flag, received_flag)
 
 @checker.getflag(2)
 async def getflag_plain(
@@ -730,7 +737,7 @@ async def getflag_plain(
         raise MumbleException("Received no USER_DESCRIPTION TLV")
     
     received_flag = decode_flag(received_description, logger)
-    assert_equals(received_flag, task.flag, "Received wrong flag")
+    compare_flag(task.flag, received_flag)
 
 @checker.putnoise(0)
 async def putnoise_sync(
@@ -944,7 +951,7 @@ async def exploit_zerolength(
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
                 received_description = ptp_protocol.ffi.buffer(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)[:]
-                received_flag = decode_flag(received_description, logger)
+                received_flag = decode_flag(received_description, logger, True)
                 logger.info(f"Received flag {received_flag}")
 
                 return received_flag
@@ -1002,7 +1009,7 @@ async def exploit_replay(
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
                 received_description = ptp_protocol.ffi.buffer(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)[:]
-                received_flag = decode_flag(received_description, logger)
+                received_flag = decode_flag(received_description, logger, True)
                 logger.info(f"Received flag {received_flag}")
                 
                 return received_flag
@@ -1085,7 +1092,7 @@ async def exploit_timing(
 
                 if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
                     received_description = ptp_protocol.ffi.buffer(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)[:]
-                    received_flag = decode_flag(received_description, logger)                    
+                    received_flag = decode_flag(received_description, logger, True)                    
                     return None, None, received_flag
                 elif tlv.payload.management.id != ptp_protocol.lib.PTP_MANAGEMENT_ID_TIME:
                     continue

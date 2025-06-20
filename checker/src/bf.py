@@ -1,6 +1,7 @@
 import math
 import brainfuckery
 import zlib
+import re
 
 # Copied from enochecker_test
 def _encode_bf_normal(input: str) -> str:
@@ -107,14 +108,30 @@ def _encode_bf_simple(input: str) -> str:
 def _decode_bf(input: str) -> str:
     return brainfuckery.Brainfuckery().interpret(input)
 
+def is_bf(s: str):
+    return re.fullmatch(r"[+\-<>\[\]\.]{100,}", s) is not None
+
 def encode(input: str) -> bytes:
     decoded = _decode_bf(input)
     encoded = _encode_bf_simple(decoded)
 
     return zlib.compress(encoded.encode("ascii"), level=9)
 
-def decode(input: bytes) -> str:
+def decode(input: bytes, reencode=False) -> str:
     decompressed = zlib.decompress(input).decode()
+
+    if not reencode:
+        return decompressed
+    
     decoded = _decode_bf(decompressed)
     
     return _encode_bf_normal(decoded)
+
+def compare(a: str, b: str):
+    if not (is_bf(a) and is_bf(b)):
+        return False
+    
+    a_decoded = _decode_bf(a)
+    b_decoded = _decode_bf(b)
+    
+    return a_decoded == b_decoded
