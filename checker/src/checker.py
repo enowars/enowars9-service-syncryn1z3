@@ -797,7 +797,7 @@ async def getnoise_sync(
     try:
         clock_id, port, secret = await db.get("userdata")
     except KeyError:
-        raise MumbleException("Missing database entry from putflag")
+        raise MumbleException("Missing database entry from putnoise")
 
     await run_synchronization(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
 
@@ -812,7 +812,7 @@ async def getnoise_time(
         clock_id, port, secret = await db.get("userdata")
         start_time, creation_time = await db.get("timedata")
     except KeyError:
-        raise MumbleException("Missing database entry from putflag")
+        raise MumbleException("Missing database entry from putnoise")
     
     last_time = start_time + get_time_ns() - creation_time
 
@@ -834,7 +834,7 @@ async def getnoise_user_description_twice(
     try:
         clock_id, port, secret, description = await db.get("userdata")
     except KeyError:
-        raise MumbleException("Missing database entry from putflag")
+        raise MumbleException("Missing database entry from putnoise")
 
     received_description = await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
     assert_equals(received_description.decode(), description, "Received wrong description")
