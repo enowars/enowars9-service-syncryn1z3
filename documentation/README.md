@@ -2,9 +2,10 @@ Service documentation
 ======================
 
 ## Flagstores
-There exist two flagstores:
-1. User description of port secured by HMAC
-2. User description of port secured by plaintext secret
+There exist three flagstores:
+1. User description of clock accessible through Web UI
+2. User description of clock secured by HMAC
+3. User description of clock secured by plaintext secret
 
 ## Vulnerabilities & Exploits
 
@@ -14,16 +15,33 @@ There exist two flagstores:
 - Replayable: no
 
 #### Description
-Return value of memcmp during ICV verification is leaked.
+Return value of memcmp during secret verification is leaked.
 
 #### Exploit
-Start with an ICV of all zeros. This will result in the server returning the first byte of the ICV. Now send the leaked byte followed by zeros to leak the second byte. This process is continued until the entire ICV is known.
+Start with a secret of all zeros. This will result in the server returning the first byte of the secret. Now send the leaked byte followed by zeros to leak the second byte. This process is continued until the entire secret is known.
 This simple implementation will work approx. 94% of the time. This is because at every byte there is a 1/256 chance that it is zero. In this case the server will not leak the expected byte. We therefore need to verify every byte by also testing with another value at every position (e.g. 0x01). If the difference between both tests is not 1, we know that the wanted byte is either 0 or 1. We therefore test with yet another value (e.g. 0x0a, 0x02 will not always work*) which one it ultimately is.
-This still doesnt work on every ICV however. If the sequence 0x00 0x02 exists in the ICV, the existing logic will return the value 0x02 for the first byte, without performing the third check. That is why the logic must be adapted to include a third check whenever the value 0x02 is expected.
-It is also possible to slightly change the request message which will produce a different ICV. Repeat this until the currently implemented logic succeeds.
+This still doesnt work on every secret however. If the sequence 0x00 0x02 exists in the secret, the existing logic will return the value 0x02 for the first byte, without performing the third check. That is why the logic must be adapted to include a third check whenever the value 0x02 is expected. However, those bytes are no longer part of the character set of the secret.
 
 
-### 2. Integer signed conversion
+### 2. Buffer overflow
+#### Overview
+- Difficulty: medium
+- Replayable: no
+
+#### Description
+Authentication policy is overridden by null-byte termination buffer overflow.
+
+#### Exploit
+When retrieving a clock from the DB, the contents of the relevant row are loaded into a DB cache (used to reduce redundant calls to the actual DB). The last member of the cache struct contains the clock secret. However the buffer does not have enought space to contain the null-byte termination of the string. The cache index can be deterministically computed. An attacker can use this to override the authentication policy of the next cache entry to zero. This will result in that entry being completely unsecured. A following request to the flagstore with any supplied secret will yield in flag retrieval.
+Notably this also allows other teams to access the now unsecured flagstore. However it is possible for the attacking team to secure it again by writing over the cache entry containing the flag. This is not flag deletion, as the flag still exists in the persitent DB, and can be loaded into the cache again.  
+```
+Cache:
+| Attacker controlled |          Flagstore          |
+|     ...    | Secret | Authentication policy | ... |
+```
+
+
+### 3. Integer signed conversion
 #### Overview
 - Difficulty: medium
 - Replayable: no
@@ -48,7 +66,8 @@ Parsing result of altered request:
 <--------------------------------------------- Autheticated content --------------------------------------------->
 ```
 
-### 3. Zero-length ICV
+
+### 4. Zero-length ICV
 #### Overview
 - Difficulty: easy
 - Replayable: yes
@@ -60,7 +79,7 @@ The ICV (HMAC) comparison uses the user-supplied length of the ICV, instead of a
 Send an authentication TLV with an ICV of length zero.
 
 
-### 4. Timing of strcmp calls
+### 5. Timing of strcmp calls
 #### Overview
 - Difficulty: hard
 - Replayable: no
