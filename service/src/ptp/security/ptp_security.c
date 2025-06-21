@@ -39,7 +39,7 @@ static inline int ptp_compute_icv_hmac_128(struct common_message_info *info, str
     const unsigned int data_length = icv - data;
 
     // Calculate ICV
-    HMAC(EVP_sha256(), entry->secret, PTP_PORT_SECRET_SIZE, data, data_length, icv_temp, &icv_length);
+    HMAC(EVP_sha256(), entry->secret, strnlen(entry->secret, PTP_PORT_SECRET_SIZE), data, data_length, icv_temp, &icv_length);
 
     // Truncate to 128 bits
     memcpy(icv, icv_temp, PTP_HMAC_128_SIZE);
@@ -48,7 +48,7 @@ static inline int ptp_compute_icv_hmac_128(struct common_message_info *info, str
 }
 
 static int ptp_compute_icv(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct db_entry *entry) {
-    switch (tlv->policy) {
+    switch (entry->authentication_policy) {
         case PTP_AUTHENTICATION_POLICY_NONE: {
             return ptp_compute_icv_none(tlv);
         }
@@ -65,10 +65,6 @@ static int ptp_compute_icv(struct common_message_info *info, struct ptp_decoded_
             return -EINVAL;
         }
     }
-}
-
-static inline int ptp_check_icv_none() {
-    return 0;
 }
 
 static inline int ptp_check_icv_plain(struct ptp_decoded_authentication_tlv *tlv, struct db_entry *entry) {
@@ -95,7 +91,7 @@ static inline int ptp_check_icv_hmac_128(struct common_message_info *info, struc
     const unsigned int data_length = icv - data;
 
     // Calculate ICV
-    HMAC(EVP_sha256(), entry->secret, PTP_PORT_SECRET_SIZE, data, data_length, icv_temp, &icv_length);
+    HMAC(EVP_sha256(), entry->secret, strnlen(entry->secret, PTP_PORT_SECRET_SIZE), data, data_length, icv_temp, &icv_length);
 
     ret = memcmp(icv, icv_temp, tlv->icv_length);
     if (ret) {
@@ -106,11 +102,7 @@ static inline int ptp_check_icv_hmac_128(struct common_message_info *info, struc
 }
 
 static int ptp_check_icv(struct common_message_info *info, struct ptp_decoded_authentication_tlv *tlv, struct db_entry *entry) {
-    switch (tlv->policy) {
-        case PTP_AUTHENTICATION_POLICY_NONE: {
-            return ptp_check_icv_none();
-        }
-
+    switch (entry->authentication_policy) {
         case PTP_AUTHENTICATION_POLICY_PLAIN: {
             return ptp_check_icv_plain(tlv, entry);
         }
@@ -213,11 +205,11 @@ check:
         if (tlv->payload.authentication.policy != entry->authentication_policy) {
             return -EINVAL;
         }
-    }
 
-    ret = ptp_check_icv(info, &tlv->payload.authentication, entry);
-    if (ret) {
-        return ret;
+        ret = ptp_check_icv(info, &tlv->payload.authentication, entry);
+        if (ret) {
+            return ret;
+        }
     }
 
     // Mark all previous TLVs

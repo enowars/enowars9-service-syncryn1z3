@@ -119,11 +119,7 @@ static int ptp_add_management_error_message_va(struct ptp_state *state, struct c
 
     transaction.request = request;
 
-    if (transaction.request->port_type != COMMON_PORT_TYPE_GENERAL) {
-        return -EINVAL;
-    }
-
-    ret = ptp_get_and_init_response(state, &transaction, COMMON_PORT_TYPE_GENERAL, PTP_MESSAGE_TYPE_MANAGEMENT, ptp_default_port_id, transaction.request->message.sequence_id);
+    ret = ptp_get_and_init_response(state, &transaction, transaction.request->port_type, PTP_MESSAGE_TYPE_MANAGEMENT, ptp_default_port_id, transaction.request->message.sequence_id);
     if (ret) {
         return ret;
     }

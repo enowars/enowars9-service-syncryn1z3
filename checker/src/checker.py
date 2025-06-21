@@ -116,7 +116,7 @@ def generate_port_id(cache_range: range = range(0, 256)):
     cache_index = random.randint(cache_range.start, cache_range.stop - 1)
 
     port = random.randint(0x1, 0xfffe)
-    clock_id = random.randint(0x200, 0x7ffffffffffff0) * 256 + cache_index - port
+    clock_id = (random.randint(0x200, 0x7ffffffffffff0) * 256) + cache_index - port
     
     return clock_id, port
 
@@ -371,7 +371,7 @@ def finalize_auth_tlv(tlv, request, secret=b"", icv=None):
     
     if tlv.payload.authentication.policy == policy_to_int("hmac"):
         if icv is None:
-            icv = hmac.new(secret + b'\x00' * (100 - len(secret)), bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
+            icv = hmac.new(secret, bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
     elif tlv.payload.authentication.policy == policy_to_int("plain"):
         icv = secret + b'\0'
     else:
@@ -654,7 +654,7 @@ async def putflag_hmac(
 ) -> None:
     flag = encode_flag(task.flag, logger)
     clock_id, port = generate_port_id(range(0, 1)) # Dont be vulnerable to buffer overflow
-    secret = generate_secret(50)
+    secret = generate_secret(random.randint(64, 99))
 
     if len(flag) > 128:
         raise InternalErrorException("Encountered flag with unsupported length")
@@ -749,7 +749,7 @@ async def putnoise_sync(
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
-    secret = generate_secret(50)
+    secret = generate_secret(random.randint(32, 99))
 
     await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", b"")
 
@@ -763,7 +763,7 @@ async def putnoise_time(
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
-    secret = generate_secret(50)
+    secret = generate_secret(random.randint(32, 99))
     start_time = generate_timestamp()
 
     await create_clock(connection, logger, clock_id, port, start_time, True, secret, "hmac", b"")
@@ -779,11 +779,11 @@ async def putnoise_user_description_twice(
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
-    secret = generate_secret(50)
-    description = generate_secret(50)
+    secret = generate_secret(random.randint(32, 99))
+    description = generate_secret(random.randint(32, 99))
 
     await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", description.encode("utf-8"))
-    error, _ = await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", generate_secret(50).encode("utf-8"), True)
+    error, _ = await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", generate_secret(random.randint(32, 99)).encode("utf-8"), True)
 
     assert_equals(error, "Failed to create clock in database", "Wrong error message")
 
@@ -797,8 +797,8 @@ async def putnoise_none(
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
-    secret = generate_secret(50)
-    description = generate_secret(50)
+    secret = generate_secret(random.randint(32, 99))
+    description = generate_secret(random.randint(32, 99))
 
     await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "none", description.encode("utf-8"))
 
@@ -879,7 +879,7 @@ async def havoc_malformed_port_id(
 ) -> None:
     clock_id = 0xffffffffffffffff
     port = 0xffff
-    secret = generate_secret(50)
+    secret = generate_secret(random.randint(32, 99))
 
     await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", True)
 

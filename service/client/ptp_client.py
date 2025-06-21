@@ -113,7 +113,7 @@ def finalize_auth_tlv(tlv, request, auth_info: AuthInfo):
     icv_address = tlv.payload.authentication.icv
     
     if tlv.payload.authentication.policy == policy_to_int("hmac"):
-        icv = hmac.new(auth_info.secret.encode("ascii") + b'\x00' * (100 - len(auth_info.secret)), bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
+        icv = hmac.new(auth_info.secret.encode("ascii"), bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
     elif tlv.payload.authentication.policy == policy_to_int("plain"):
         icv = auth_info.secret.encode("ascii") + b'\0'
 
