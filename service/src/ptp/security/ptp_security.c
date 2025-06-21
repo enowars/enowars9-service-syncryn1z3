@@ -11,7 +11,7 @@
 #include <ptp/security/ptp_security.h>
 #include <db/db.h>
 
-#define PTP_MAX_ICV_LENGTH 100
+#define PTP_MAX_ICV_LENGTH 64
 #define PTP_HMAC_128_SIZE 16
 
 static inline int ptp_compute_icv_none(struct ptp_decoded_authentication_tlv *tlv) {

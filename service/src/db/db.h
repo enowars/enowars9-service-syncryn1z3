@@ -6,8 +6,8 @@
 
 struct sqlite3;
 
-#define DB_SECRET_SIZE 100
-#define DB_USER_DESCRIPTION_SIZE 3000
+#define DB_SECRET_SIZE 64
+#define DB_USER_DESCRIPTION_SIZE 1500
 
 struct db_entry {
     enum ptp_authentication_policy authentication_policy;

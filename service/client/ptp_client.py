@@ -103,7 +103,7 @@ def add_auth_tlv(message, auth_info: AuthInfo):
     if auth_info.policy == "hmac":
         tlv.payload.authentication.icv_length = 16
     elif auth_info.policy == "plain":
-        tlv.payload.authentication.icv_length = 100
+        tlv.payload.authentication.icv_length = 64
     
 def finalize_auth_tlv(tlv, request, auth_info: AuthInfo):
     if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
