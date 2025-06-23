@@ -96,15 +96,6 @@ def decode_flag(flag: bytes, logger: LoggerAdapter, reencode=False):
         logger.debug(f"Failed to decode flag: {flag} (Exception: {e})")
         return MumbleException("Failed to decode flag")
 
-def compare_flag(expected: str, response: str):
-    if expected == response:
-        return
-
-    if bf.compare(expected, response):
-        return
-    
-    raise MumbleException("Received wrong flag")
-
 """
 Utility functions
 """
@@ -634,11 +625,12 @@ async def putflag_visible(
     
     prefix += " "
     description = prefix + task.flag
+    description = description.encode("utf-8")
 
     if len(description) > 1500:
         raise InternalErrorException("Encountered flag with unsupported length")
 
-    await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", description.encode("utf-8"))
+    await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", description)
 
     await db.set("userdata", (clock_id, port, secret))
     await db.set("prefix_length", len(prefix))
@@ -652,14 +644,14 @@ async def putflag_hmac(
     connection: WsConnection,
     logger: LoggerAdapter,    
 ) -> None:
-    flag = encode_flag(task.flag, logger)
+    description = encode_flag(task.flag, logger)
     clock_id, port = generate_port_id(range(0, 1)) # Dont be vulnerable to buffer overflow
     secret = generate_secret(random.randint(32, 63))
 
-    if len(flag) > 128:
+    if len(description) > 128:
         raise InternalErrorException("Encountered flag with unsupported length")
 
-    await create_clock(connection, logger, clock_id, port, generate_timestamp(), False, secret, "hmac", flag)
+    await create_clock(connection, logger, clock_id, port, generate_timestamp(), False, secret, "hmac", description)
 
     await db.set("userdata", (clock_id, port, secret))
 
@@ -672,14 +664,14 @@ async def putflag_plain(
     connection: WsConnection,
     logger: LoggerAdapter,    
 ) -> None:
-    flag = encode_flag(task.flag, logger)
+    description = encode_flag(task.flag, logger)
     clock_id, port = generate_port_id(range(0, 1)) # Dont be vulnerable to buffer overflow
     secret = generate_secret(16)
 
-    if len(flag) > 128:
+    if len(description) > 128:
         raise InternalErrorException("Encountered flag with unsupported length")
 
-    await create_clock(connection, logger, clock_id, port, generate_timestamp(), False, secret, "plain", flag)
+    await create_clock(connection, logger, clock_id, port, generate_timestamp(), False, secret, "plain", description)
 
     await db.set("userdata", (clock_id, port, secret))
 
@@ -699,9 +691,10 @@ async def getflag_visible(
         raise MumbleException("Missing database entry from putflag")
 
     received_description = await inspect_clock(connection, logger, clock_id, port, secret)
-    received_flag = decode_flag(received_description[prefix_length:], logger)
+    received_flag = received_description[prefix_length:].decode()
 
-    compare_flag(task.flag, received_flag)
+    if received_flag != task.flag:
+        raise MumbleException("Received wrong flag")
 
 @checker.getflag(1)
 async def getflag_hmac(
@@ -719,8 +712,8 @@ async def getflag_hmac(
     if received_description is None:
         raise MumbleException("Received no USER_DESCRIPTION TLV")
     
-    received_flag = decode_flag(received_description, logger)
-    compare_flag(task.flag, received_flag)
+    if received_description != encode_flag(task.flag, logger):
+        raise MumbleException("Received wrong flag")
 
 @checker.getflag(2)
 async def getflag_plain(
@@ -738,8 +731,8 @@ async def getflag_plain(
     if received_description is None:
         raise MumbleException("Received no USER_DESCRIPTION TLV")
     
-    received_flag = decode_flag(received_description, logger)
-    compare_flag(task.flag, received_flag)
+    if received_description != encode_flag(task.flag, logger):
+        raise MumbleException("Received wrong flag")
 
 @checker.putnoise(0)
 async def putnoise_sync(

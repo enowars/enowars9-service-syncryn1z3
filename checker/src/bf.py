@@ -126,12 +126,3 @@ def decode(input: bytes, reencode=False) -> str:
     decoded = _decode_bf(decompressed)
     
     return _encode_bf_normal(decoded)
-
-def compare(a: str, b: str):
-    if not (is_bf(a) and is_bf(b)):
-        return False
-    
-    a_decoded = _decode_bf(a)
-    b_decoded = _decode_bf(b)
-    
-    return a_decoded == b_decoded
