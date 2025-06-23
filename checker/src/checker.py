@@ -472,12 +472,6 @@ async def get_user_description(connection: UdpConnection, logger: LoggerAdapter,
     connection.send_raw(request, GENERAL_PORT)
     response = await connection.receive(GENERAL_PORT)
 
-    if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
-        raise MumbleException("Expected management message in response")
-    
-    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE and not expect_error:
-        raise MumbleException("Expected management response action")
-
     received_description = None
 
     for tlv in response.get_tlvs():
@@ -490,6 +484,12 @@ async def get_user_description(connection: UdpConnection, logger: LoggerAdapter,
             else:
                 logger.info(f"Unexpected management error (get user description): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
                 raise MumbleException("Unexpected management error in USER_DESCRIPTION response")
+            
+    if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
+        raise MumbleException("Expected management message in response")
+    
+    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE and not expect_error:
+        raise MumbleException("Expected management response action")
 
     if expect_error:
         raise MumbleException("Expected management error in USER_DESCRIPTION response")
@@ -513,12 +513,6 @@ async def get_time(connection: UdpConnection, logger: LoggerAdapter, clock_id: i
     connection.send(message, GENERAL_PORT)
     response = await connection.receive(GENERAL_PORT)
 
-    if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
-        raise MumbleException("Expected management message in response")
-    
-    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE and not expect_error:
-        raise MumbleException("Expected management response action")
-
     current_time = None
 
     for tlv in response.get_tlvs():
@@ -531,6 +525,12 @@ async def get_time(connection: UdpConnection, logger: LoggerAdapter, clock_id: i
             else:
                 logger.info(f"Unexpected management error (get time): {ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()}")
                 raise MumbleException("Unexpected management error in TIME response")
+            
+    if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
+        raise MumbleException("Expected management message in response")
+    
+    if response.decoded.payload.management.action != ptp_protocol.lib.PTP_MANAGEMENT_ACTION_RESPONSE and not expect_error:
+        raise MumbleException("Expected management response action")
 
     if current_time is None:
         raise MumbleException("Received no TIME TLV")
