@@ -297,6 +297,17 @@ function updateClocks() {
     }
 }
 
+function updateSecret(event) {
+    const secret = document.getElementById("createSecret");
+    const authenticationPolicy = document.getElementById("createAuthenticationPolicy");
+
+    if (authenticationPolicy.value == "none") {
+        secret.style.display = "none";
+    } else {
+        secret.style.display = "inherit";
+    }
+}
+
 window.onload = () => {
     openConnection(getClocks());
 

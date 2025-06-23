@@ -44,7 +44,7 @@
             
             <span class="input-span">
                 <label for="createAuthenticationPolicy">Authentication</label>
-                <select id="createAuthenticationPolicy">
+                <select id="createAuthenticationPolicy" onchange="updateSecret()">
                     <option value="hmac">HMAC</option>
                     <option value="plain">Plaintext (legacy)</option>
                     <option value="none">None (unsecured)</option>
