@@ -910,6 +910,8 @@ async def havoc_long_description(
     connection: WsConnection,
     logger: LoggerAdapter,    
 ) -> None:
+    return
+
     clock_id, port = generate_port_id()
     secret = generate_secret(random.randint(32, 63))
 
