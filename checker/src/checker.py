@@ -225,7 +225,7 @@ class WsConnection:
         self.logger.debug(f"Received websocket message: {message}")
         
         return message
-    
+
 @singleton
 class WsClientPool:
     CLEANUP_INTERVAL = 10
@@ -259,7 +259,17 @@ class WsClientPool:
 
                         client = None
                     else:
-                        self.logger.debug(f"Reusing websocket client to {host}")
+                        try:
+                            # Flush the receive buffer
+                            while True:
+                                try:
+                                    await asyncio.wait_for(client.recv(), 0)
+                                except asyncio.TimeoutError:
+                                    break
+
+                            await client.ping()
+                        except websockets.exceptions.ConnectionClosed:
+                            client = None
 
             # Create new client
             if client is None:
@@ -280,6 +290,8 @@ class WsClientPool:
                     self.clients[host] += [(client, lock, timeout)]
                 except KeyError:
                     self.clients[host] = [(client, lock, timeout)]
+            else:
+                self.logger.debug(f"Reusing websocket client to {host}")
 
             await lock.acquire()
 
@@ -408,6 +420,13 @@ async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id
             raise MumbleException("Expected 'error' and 'code' key in JSON response")
     else:
         try:
+            error = response_decoded["error"]
+            code = response_decoded["code"]
+            raise MumbleException(f"Received unexpected 'error' key in JSON response: {error} ({code})")
+        except KeyError:
+            pass
+
+        try:
             assert_equals(response_decoded["task"], "create_clock", "Task mismatch in response")
         except KeyError:
             raise MumbleException("Expected 'task' key in JSON response")
@@ -433,6 +452,13 @@ async def inspect_clock(connection: WsConnection, logger: LoggerAdapter, clock_i
         except KeyError:
             raise MumbleException("Expected 'error' and 'code' key in JSON response")
     else:
+        try:
+            error = response_decoded["error"]
+            code = response_decoded["code"]
+            raise MumbleException(f"Received unexpected 'error' key in JSON response: {error} ({code})")
+        except KeyError:
+            pass
+
         try:
             assert_equals(response_decoded["task"], "inspect_clock", "Task mismatch in response")
         except KeyError:
