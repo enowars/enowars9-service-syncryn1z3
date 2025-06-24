@@ -422,7 +422,8 @@ async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id
         try:
             error = response_decoded["error"]
             code = response_decoded["code"]
-            raise MumbleException(f"Received unexpected 'error' key in JSON response: {error} ({code})")
+            logger.info(f"Received unexpected 'error' key in JSON response: {error} ({code})")
+            raise MumbleException(f"Received unexpected 'error' key in JSON response)")
         except KeyError:
             pass
 
@@ -455,7 +456,8 @@ async def inspect_clock(connection: WsConnection, logger: LoggerAdapter, clock_i
         try:
             error = response_decoded["error"]
             code = response_decoded["code"]
-            raise MumbleException(f"Received unexpected 'error' key in JSON response: {error} ({code})")
+            logger.info(f"Received unexpected 'error' key in JSON response: {error} ({code})")
+            raise MumbleException(f"Received unexpected 'error' key in JSON response")
         except KeyError:
             pass
 
