@@ -263,7 +263,7 @@ class WsClientPool:
                             # Flush the receive buffer
                             while True:
                                 try:
-                                    await asyncio.wait_for(client.recv(), 0)
+                                    await asyncio.wait_for(client.recv(), 0.1)
                                 except asyncio.TimeoutError:
                                     break
 
