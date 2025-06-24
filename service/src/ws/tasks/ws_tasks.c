@@ -344,9 +344,19 @@ int ws_handle_message(struct ws_state *state, struct ws_message *request) {
     
     request_json = cJSON_ParseWithLength(request->data, request->length);
     if (!request_json) {
-        const char *error_string = cJSON_GetErrorPtr();
+        const char *error_string = cJSON_GetErrorPtr() - 16;
+        int error_string_length = 32;
+        
+        if (error_string < request->data) {
+            error_string = request->data;
+        }
+        
+        if (error_string + error_string_length > request->data + request->length) {
+            error_string_length = request->data + request->length - error_string;
+        }
+
         if (error_string) {
-            fprintf(stderr, "JSON parse error: %s\n", error_string);
+            return ws_send_error(request, EINVAL, "JSON parse error around '%.*s'", error_string_length, error_string);
         }
 
         ret = -1;
