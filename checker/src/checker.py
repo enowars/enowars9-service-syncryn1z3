@@ -982,12 +982,9 @@ async def havoc_long_description(
     connection: WsConnection,
     logger: LoggerAdapter,    
 ) -> None:
-    return
-
     clock_id, port = generate_port_id()
     secret = generate_secret(random.randint(32, 63))
 
-    await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", generate_secret(1501).encode("ascii"), True)
     await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", generate_secret(1500).encode("ascii"), False)
 
 @checker.exploit(0)
