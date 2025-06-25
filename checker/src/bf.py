@@ -3,6 +3,10 @@ import brainfuckery
 import zlib
 import re
 
+from enochecker3 import (
+    MumbleException,
+)
+
 # Copied from enochecker_test
 def _encode_bf_normal(input: str) -> str:
     targets: list[int] = []
@@ -118,7 +122,12 @@ def encode(input: str) -> bytes:
     return zlib.compress(encoded.encode("ascii"), level=9)
 
 def decode(input: bytes, reencode=False) -> str:
-    decompressed = zlib.decompress(input).decode()
+    try:
+        decompressed = zlib.decompress(input).decode()
+    except zlib.error:
+        raise MumbleException("Failed to decompress flag")
+    except UnicodeDecodeError:
+        raise MumbleException("Failed to decode flag")
 
     if not reencode:
         return decompressed
