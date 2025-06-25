@@ -388,6 +388,36 @@ def finalize_auth_tlvs(request, secret=b"", icv=None):
     for tlv in message.get_tlvs():
         finalize_auth_tlv(tlv, request, secret, icv)
 
+def check_auth_tlv_hmac(tlv, response, secret):
+    if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
+        return False
+    
+    if tlv.payload.authentication.policy != policy_to_int("hmac"):
+        raise MumbleException("Invalid policy in authentication TLV")
+    
+    if tlv.payload.authentication.icv_length != 16:
+        raise MumbleException("Invalid ICV length in authentication TLV")
+
+    buffer_address = ptp_protocol.ffi.cast("uint8_t *", ptp_protocol.ffi.addressof(ptp_protocol.ffi.from_buffer(response)))
+    icv_address = tlv.payload.authentication.icv
+    icv = hmac.new(secret, bytearray(response)[:icv_address - buffer_address], hashlib.sha256).digest()
+
+    supplied_icv = ptp_protocol.ffi.buffer(tlv.payload.authentication.icv, 16)[:]
+
+    if supplied_icv != icv[:16]:
+        raise MumbleException("Invalid ICV in authentication TLV")
+    
+    return True
+
+def check_auth_tlvs_hmac(response, secret):
+    message = ptp_message.from_buffer(response)
+
+    for tlv in message.get_tlvs():
+        if check_auth_tlv_hmac(tlv, response, secret):
+            return
+        
+    raise MumbleException("No authentication TLV in response") 
+
 
 """
 Functionality functions
@@ -736,7 +766,7 @@ async def getflag_hmac(
     except KeyError:
         raise MumbleException("Missing database entry from putflag")
 
-    received_description = await get_user_description(connection, logger, clock_id, port, secret.encode("utf-8"), "hmac")
+    received_description = await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
     if received_description is None:
         raise MumbleException("Received no USER_DESCRIPTION TLV")
     
@@ -825,6 +855,20 @@ async def putnoise_none(
 
     await db.set("userdata", (clock_id, port, secret, description))
 
+@checker.putnoise(4)
+async def putnoise_hmac(
+    task: PutnoiseCheckerTaskMessage,
+    db: ChainDB,
+    connection: WsConnection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id, port = generate_port_id()
+    secret = generate_secret(random.randint(32, 63))
+
+    await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", b"")
+
+    await db.set("userdata", (clock_id, port, secret))
+
 @checker.getnoise(0)
 async def getnoise_sync(
     task: GetnoiseCheckerTaskMessage,
@@ -891,6 +935,34 @@ async def getnoise_none(
 
     received_description = await inspect_clock(connection, logger, clock_id, port, "")
     assert_equals(received_description.decode(), description, "Received wrong description")
+
+@checker.getnoise(4)
+async def getnoise_hmac(
+    task: GetnoiseCheckerTaskMessage,
+    db: ChainDB,
+    connection: UdpConnection,
+    logger: LoggerAdapter,    
+) -> None:
+    try:
+        clock_id, port, secret = await db.get("userdata")
+    except KeyError:
+        raise MumbleException("Missing database entry from putnoise")
+    
+    local_clock_id, local_port = generate_port_id()
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
+
+    payload = message.get_payload()
+    payload.management.target_port_id.clock_id = clock_id
+    payload.management.target_port_id.port = port
+    payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
+
+    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+    tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
+
+    connection.send(message, GENERAL_PORT)
+    response = await connection.receive_raw(GENERAL_PORT)
+
+    check_auth_tlvs_hmac(response, secret.encode("ascii"))
 
 @checker.havoc(0)
 async def havoc_malformed_port_id(
