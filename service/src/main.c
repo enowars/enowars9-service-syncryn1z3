@@ -8,6 +8,7 @@
 #include <db/db.h>
 #include <udp/udp.h>
 #include <ws/ws.h>
+#include <util/error.h>
 
 struct main_config {
     struct db_config db;
@@ -69,22 +70,22 @@ int main(int argc, char *argv[]) {
 
     ret = db_setup(&state.db, &state.config.db);
     if (ret) {
-        return -ret;
+        return util_error_int(ret);
     }
 
     ret = ptp_setup(&state.ptp, &state.config.ptp);
     if (ret) {
-        return -ret;
+        return util_error_int(ret);
     }
 
     ret = udp_setup(&state.socket, &state.config.socket);
     if (ret) {
-        return -ret;
+        return util_error_int(ret);
     }
 
     ret = ws_setup(&state.ws, &state.config.ws);
     if (ret) {
-        return -ret;
+        return util_error_int(ret);
     }
 
     uv_signal_init(state.loop, &signal);
@@ -96,27 +97,27 @@ int main(int argc, char *argv[]) {
 
     ret = ws_cleanup(&state.ws);
     if (ret) {
-        return -ret;
+        return util_error_int(ret);
     }
 
     ret = udp_cleanup(&state.socket);
     if (ret) {
-        return -ret;
+        return util_error_int(ret);
     }
 
     ret = ptp_cleanup(&state.ptp);
     if (ret) {
-        return -ret;
+        return util_error_int(ret);
     }
 
     ret = db_cleanup(&state.db);
     if (ret) {
-        return -ret;
+        return util_error_int(ret);
     }
 
     ret = uv_loop_close(state.loop);
     if (ret) {
-        return -ret;
+        return util_error_int(ret);
     }
 
     return 0;
