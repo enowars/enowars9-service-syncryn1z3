@@ -305,8 +305,6 @@ class WsClientPool:
             await asyncio.sleep(self.CLEANUP_INTERVAL)
 
             async with self.lock:
-                self.logger.debug("Cleanup websocket clients")
-
                 now = time.time()
                 for host in list(self.clients):
                     for entry in self.clients[host][:]:
@@ -315,7 +313,6 @@ class WsClientPool:
                             async with lock:
                                 await client.close()
                                 self.clients[host].remove(entry)
-                                self.logger.debug(f"Closed websocket client for {host}")
 
 @checker.register_dependency
 @contextlib.asynccontextmanager
