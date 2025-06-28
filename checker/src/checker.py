@@ -984,6 +984,41 @@ async def havoc_long_description(
 
     await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", generate_secret(1500).encode("ascii"), False)
 
+@checker.havoc(2)
+async def havoc_many_tlvs(
+    task: HavocCheckerTaskMessage,
+    connection: UdpConnection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id, port = generate_port_id()
+    local_clock_id, local_port = generate_port_id()
+    
+    message = ptp_message.from_parameters(ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT, local_clock_id, local_port, 0)
+
+    payload = message.get_payload()
+    payload.management.target_port_id.clock_id = clock_id
+    payload.management.target_port_id.port = port
+    payload.management.action = ptp_protocol.lib.PTP_MANAGEMENT_ACTION_GET
+
+    for _ in range(random.randint(16, 19)):
+        tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_PAD)
+        tlv.payload.pad.length = random.randint(4, 8) * 2
+
+    tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
+    tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_TIME
+
+    connection.send(message, GENERAL_PORT)
+    response = await connection.receive(GENERAL_PORT)
+
+    if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
+        raise MumbleException("Expected management message in response")
+
+    for tlv in response.get_tlvs():
+        if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT or tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
+            return
+            
+    raise MumbleException("Expected management TLV in response")
+
 @checker.exploit(0)
 async def exploit_memcmp(
     task: ExploitCheckerTaskMessage,
