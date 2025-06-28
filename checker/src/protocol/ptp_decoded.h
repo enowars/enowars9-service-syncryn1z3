@@ -5,7 +5,7 @@
 
 #include "ptp_constants.h"
 
-#define PTP_MAX_TLV_COUNT 32
+#define PTP_MAX_TLV_COUNT 20
 
 #define PTP_DISPLAY_NAME_SIZE 10
 #define PTP_USER_DESCRIPTION_SIZE 128

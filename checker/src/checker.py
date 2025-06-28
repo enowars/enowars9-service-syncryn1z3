@@ -1196,7 +1196,7 @@ async def exploit_timing(
     payload.management.starting_boundary_hops = 0
     payload.management.boundary_hops = 0
 
-    for _ in range(10):
+    for _ in range(6):
         # Measure execution time (start time / end time of previous char)
         tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
         tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_TIME
