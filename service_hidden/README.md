@@ -2,7 +2,10 @@ Hidden mechanics
 ====================
 A custom library is compiled to inject an insecure version of strncmp().
 
-# Build the image
+# Build the library
 ```
-docker build . -t microdebian/bookworm
+mkdir build
+cd build
+cmake ..
+make
 ```

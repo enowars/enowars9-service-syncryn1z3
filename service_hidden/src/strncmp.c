@@ -3,30 +3,31 @@
 
 #define CHARACTER_SLEEP_TIME 2500
 
-static inline __attribute__((always_inline)) uint64_t get_time() {
-    int ret;
-    struct timespec now;
+static int load_char(const char *c) {
+    __asm__ volatile ("mov %0, %%eax" : : "r"(0xB) : "%eax");
+    __asm__ __volatile__("cpuid");
 
-    ret = clock_gettime(CLOCK_MONOTONIC, &now);
-
-    return now.tv_sec * 1000000000 + now.tv_nsec;
+    return *c;
 }
 
 int strncmp(const char *a, const char *b, size_t len) {
-    int i;
     int ret;
-
-    uint64_t start_time = get_time();
     
-    for (i = 0; i < len; ++i) {
-        ret = (int)*a - (int)*b;
+    for (int i = 0; i < len; ++i) {
+        register int reg_a;
+        register int reg_b;
+        
+        reg_a = load_char(a);
+        reg_b = load_char(b);
+
+        ret = reg_a - reg_b;
 
         if (ret) {
-            goto end;
+            return ret;
         }
 
-        if (*a == '\0' || *b == '\0') {
-            goto end;
+        if (reg_a == 0 || reg_b == 0) {
+            return ret;
         }
 
         ++a;
@@ -34,17 +35,6 @@ int strncmp(const char *a, const char *b, size_t len) {
     }
 
     ret = 0;
-
-end:
-    uint64_t target_time = start_time + i * CHARACTER_SLEEP_TIME;
-
-    while (1) {
-        uint64_t current_time = get_time();
-
-        if (current_time >= target_time) {
-            break;
-        }
-    }
 
     return ret;
 }

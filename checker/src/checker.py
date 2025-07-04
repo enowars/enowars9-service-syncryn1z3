@@ -1315,15 +1315,15 @@ async def exploit_timing(
     avg_durations = [-np.inf]
 
     # Likely not as many iterations needed, but I don't want the CI to randomly fail
-    for i in range(1, 200):
+    for i in range(1, 500):
         guess, avg_duration, received_flag = await guess_char(bytes(secret))
 
         if received_flag is not None:
-            logger.info(f"Received flag {received_flag} after {i} iterations")
+            logger.info(f"Received flag {received_flag} after {i} iterations {np.diff(avg_durations)}")
             return received_flag
         
         # Backtracking if we made an error due to noise
-        if avg_duration > avg_durations[-1] + 2000:
+        if avg_duration > avg_durations[-1] + 10:
             secret += guess
             avg_durations += [avg_duration]
         else:
