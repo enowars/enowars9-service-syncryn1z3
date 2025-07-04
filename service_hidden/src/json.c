@@ -1,9 +1,8 @@
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "string.h"
 #include "json.h"
 
 
@@ -12,8 +11,10 @@
 enum json_type {
     JSON_NUMBER,
     JSON_STRING,
+    JSON_OBJECT,
+#ifdef JSON_WITH_ARRAY
     JSON_ARRAY,
-    JSON_OBJECT
+#endif
 };
 
 struct json_kv_pair {
@@ -29,14 +30,16 @@ struct json_value {
         char *string;
 
         struct {
-            struct json_value **items;
-            size_t count;
-        } array;
-
-        struct {
             struct json_kv_pair *pairs;
             size_t count;
         } object;
+
+#ifdef JSON_WITH_ARRAY
+        struct {
+            struct json_value **items;
+            size_t count;
+        } array;
+#endif
     };
 };
 
@@ -45,6 +48,11 @@ struct json_value {
 
 static struct json_value *_json_parse(const char **input, const char *end);
 static int _json_serialize(const struct json_value *v, char **out, char *end);
+
+#ifdef JSON_WITH_ARRAY
+struct json_value *json_create_array();
+int json_array_push(struct json_value *parent, struct json_value *child);
+#endif
 
 
 // Helper functions
@@ -182,62 +190,6 @@ static struct json_value *_json_parse_string(const char **in, const char *end) {
     return v;
 }
 
-static struct json_value *_json_parse_array(const char **in, const char *end) {
-    struct json_value *v;
-    const char *p = *in;
-
-    if (p + 2 > end) {
-        return NULL;
-    }
-
-    if (*p != '[') {
-        return NULL;
-    }
-
-    ++p;
-
-    v = json_create_array();
-
-    if (*p != ']') {
-        do {
-            struct json_value *item = _json_parse(&p, end);
-            if (!item) {
-                break;
-            }
-
-            if (json_array_push(v, item)) {
-                json_free(item);
-                goto out;
-            }
-
-            if (p >= end) {
-                goto out;
-            }
-
-            if (*p != ',') {
-                break;
-            }
-            
-            ++p;
-        } while (p < end);
-    }
-
-    if (*p != ']' || p >= end) {
-        goto out;
-    }
-
-    ++p;
-
-    *in = p;
-
-    return v;
-
-out:
-    json_free(v);
-
-    return NULL;
-}
-
 static struct json_value *_json_parse_object(const char **in, const char *end) {
     struct json_value *v;
     const char *p = *in;
@@ -306,6 +258,64 @@ out:
     return NULL;
 }
 
+#ifdef JSON_WITH_ARRAY
+static struct json_value *_json_parse_array(const char **in, const char *end) {
+    struct json_value *v;
+    const char *p = *in;
+
+    if (p + 2 > end) {
+        return NULL;
+    }
+
+    if (*p != '[') {
+        return NULL;
+    }
+
+    ++p;
+
+    v = json_create_array();
+
+    if (*p != ']') {
+        do {
+            struct json_value *item = _json_parse(&p, end);
+            if (!item) {
+                break;
+            }
+
+            if (json_array_push(v, item)) {
+                json_free(item);
+                goto out;
+            }
+
+            if (p >= end) {
+                goto out;
+            }
+
+            if (*p != ',') {
+                break;
+            }
+            
+            ++p;
+        } while (p < end);
+    }
+
+    if (*p != ']' || p >= end) {
+        goto out;
+    }
+
+    ++p;
+
+    *in = p;
+
+    return v;
+
+out:
+    json_free(v);
+
+    return NULL;
+}
+#endif
+
 static struct json_value *_json_parse(const char **input, const char *end) {
     struct json_value *v = NULL;
 
@@ -319,15 +329,17 @@ static struct json_value *_json_parse(const char **input, const char *end) {
         return v;
     }
 
-    v = _json_parse_array(input, end);
-    if (v) {
-        return v;
-    }
-
     v = _json_parse_object(input, end);
     if (v) {
         return v;
     }
+
+#ifdef JSON_WITH_ARRAY
+    v = _json_parse_array(input, end);
+    if (v) {
+        return v;
+    }
+#endif
 
     return NULL;
 }
@@ -335,109 +347,153 @@ static struct json_value *_json_parse(const char **input, const char *end) {
 
 // Serialization
 
-static int _json_serialize(const struct json_value *v, char **out, char *end) {
+static int _json_serialize_number(const struct json_value *v, char **out, char *end) {
+    char temp[20];
+
+    int i = 0;
+    uint64_t n = v->number;
+
+    char *p = *out;
+
+    if (v->number == 0) {
+        temp[0] = '0';
+        ++i;
+    } else {
+        // Convert to string in reverse order
+        while (n > 0) {
+            uint64_t digit = n % 10;
+
+            temp[i] = '0' + (char)digit;
+            n /= 10;
+            ++i;
+        }
+    }
+
+    char *digit_end = p + i;
+
+    if (digit_end >= end) {
+        return -1;
+    }
+
+    char *d = temp + i - 1;
+
+    while (p < digit_end) {
+        *p = *d;
+        ++p;
+        --d;
+    }
+
+    *out = p;
+
+    return 0;
+}
+
+static int _json_serialize_string(const struct json_value *v, char **out, char *end) {
+    return _serialize_string(v->string, out, end);
+}
+
+static int _json_serialize_object(const struct json_value *v, char **out, char *end) {
     int ret;
 
     char *p = *out;
 
-    if (p >= end) {
+    *p = '{';
+    ++p;
+
+    for (int i = 0; i < v->object.count; ++i) {
+        ret = _serialize_string(v->object.pairs[i].key, &p, end);
+        if (ret < 0) {
+            return ret;
+        }
+
+        *p = ':';
+        ++p;
+
+        if (p + 1 >= end) {
+            return -1;
+        }
+
+        ret = _json_serialize(v->object.pairs[i].value, &p, end);
+        if (ret < 0) {
+            return ret;
+        }
+
+        if (p + 1 >= end) {
+            return -1;
+        }
+
+        if (i < v->object.count - 1) {
+            *p = ',';
+            ++p;
+        }
+    }
+
+    *p = '}';
+    ++p;
+
+    *out = p;
+
+    return 0;
+}
+
+#ifdef JSON_WITH_ARRAY
+static int _json_serialize_array(const struct json_value *v, char **out, char *end) {
+    int ret;
+
+    char *p = *out;
+
+    *p = '[';
+    ++p;
+
+    for (int i = 0; i < v->array.count; ++i) {
+        ret = _json_serialize(v->array.items[i], &p, end);
+        if (ret < 0) {
+            return ret;
+        }
+
+        if (p + 1 >= end) {
+            return -1;
+        }
+
+        if (i < v->array.count - 1) {
+            *p = ',';
+            ++p;
+        }
+    }
+
+    *p = ']';
+    ++p;
+
+    *out = p;
+
+    return 0;
+}
+#endif
+
+static int _json_serialize(const struct json_value *v, char **out, char *end) {
+    if (*out >= end) {
         return -1;
     }
 
     switch (v->type) {
         case JSON_NUMBER: {
-            ret = snprintf(p, end - p, "%lu", v->number);
-            if (ret < 0) {
-                return ret;
-            }
-
-            if (ret > end - p) {
-                return -1;
-            }
-
-            p += ret;
-
-            break;
+            return _json_serialize_number(v, out, end);
         }
 
         case JSON_STRING: {
-            ret = _serialize_string(v->string, &p, end);
-            if (ret < 0) {
-                return ret;
-            }
-
-            if (ret > end - p) {
-                return -1;
-            }
-
-            p += ret;
-
-            break;
-        }
-
-        case JSON_ARRAY: {
-            *p = '[';
-            ++p;
-
-            for (int i = 0; i < v->array.count; ++i) {
-                ret = _json_serialize(v->array.items[i], &p, end);
-                if (ret < 0) {
-                    return ret;
-                }
-
-                if (p == end) {
-                    return -1;
-                }
-
-                if (i < v->array.count - 1) {
-                    *p = ',';
-                    ++p;
-                }
-            }
-
-            *p = ']';
-            ++p;
-
-            break;
+            return _json_serialize_string(v, out, end);
         }
 
         case JSON_OBJECT: {
-            *p = '{';
-            ++p;
-
-            for (int i = 0; i < v->object.count; ++i) {
-                ret = snprintf(p, end - p, "\"%s\":", v->object.pairs[i].key);
-                if (ret < 0) {
-                    return ret;
-                }
-
-                p += ret;
-
-                ret = _json_serialize(v->object.pairs[i].value, &p, end);
-                if (ret < 0) {
-                    return ret;
-                }
-
-                if (p == end) {
-                    return -1;
-                }
-
-                if (i < v->array.count - 1) {
-                    *p = ',';
-                    ++p;
-                }
-            }
-
-            *p = '}';
-            ++p;
-
-            break;
+            return _json_serialize_object(v, out, end);
         }
+
+#ifdef JSON_WITH_ARRAY
+        case JSON_ARRAY: {
+            return _json_serialize_array(v, out, end);
+        }
+#endif
     }
-    
-    *out = p;
-    
-    return 0;
 }
 
 struct json_value *json_parse(const char *in, size_t size) {
@@ -500,21 +556,6 @@ struct json_value *json_create_string(const char *s) {
     return v;
 }
 
-struct json_value *json_create_array() {
-    struct json_value *v;
-
-    v = malloc(sizeof(struct json_value));
-    if (!v) {
-        return NULL;
-    }
-
-    v->type = JSON_ARRAY;
-    v->array.items = NULL;
-    v->array.count = 0;
-
-    return v;
-}
-
 struct json_value *json_create_object() {
     struct json_value *v;
 
@@ -530,6 +571,23 @@ struct json_value *json_create_object() {
     return v;
 }
 
+#ifdef JSON_WITH_ARRAY
+struct json_value *json_create_array() {
+    struct json_value *v;
+
+    v = malloc(sizeof(struct json_value));
+    if (!v) {
+        return NULL;
+    }
+
+    v->type = JSON_ARRAY;
+    v->array.items = NULL;
+    v->array.count = 0;
+
+    return v;
+}
+#endif
+
 void json_free(struct json_value *v) {
     if (!v) {
         return;
@@ -538,15 +596,6 @@ void json_free(struct json_value *v) {
     switch (v->type) {
         case JSON_STRING: {
             free(v->string);
-            break;
-        }
-
-        case JSON_ARRAY: {
-            for (int i = 0; i < v->array.count; i++) {
-                json_free(v->array.items[i]);
-            }
-
-            free(v->array.items);
             break;
         }
 
@@ -559,6 +608,17 @@ void json_free(struct json_value *v) {
             free(v->object.pairs);
             break;
         }
+
+#ifdef JSON_WITH_ARRAY
+        case JSON_ARRAY: {
+            for (int i = 0; i < v->array.count; i++) {
+                json_free(v->array.items[i]);
+            }
+
+            free(v->array.items);
+            break;
+        }
+#endif
     }
 
     free(v);
@@ -566,20 +626,6 @@ void json_free(struct json_value *v) {
 
 
 // Modify
-
-int json_array_push(struct json_value *parent, struct json_value *child) {
-    int count = parent->array.count;
-
-    parent->array.items = realloc(parent->array.items, sizeof(struct json_value) * (count + 1));
-    if (!parent->array.items) {
-        return -1;
-    }
-
-    parent->array.items[count] = child;
-    ++parent->array.count;
-
-    return 0;
-}
 
 int json_object_push(struct json_value *parent, char *key, struct json_value *child) {
     int count = parent->object.count;
@@ -595,6 +641,22 @@ int json_object_push(struct json_value *parent, char *key, struct json_value *ch
 
     return 0;
 }
+
+#ifdef JSON_WITH_ARRAY
+int json_array_push(struct json_value *parent, struct json_value *child) {
+    int count = parent->array.count;
+
+    parent->array.items = realloc(parent->array.items, sizeof(struct json_value) * (count + 1));
+    if (!parent->array.items) {
+        return -1;
+    }
+
+    parent->array.items[count] = child;
+    ++parent->array.count;
+
+    return 0;
+}
+#endif
 
 
 // Access
@@ -615,18 +677,6 @@ const char *json_string_get(struct json_value *v) {
     return v->string;
 }
 
-struct json_value *json_array_get(struct json_value *v, int index) {
-    if (v->type != JSON_ARRAY) {
-        return NULL;
-    }
-
-    if (index >= v->array.count) {
-        return NULL;
-    }
-
-    return v->array.items[index];
-}
-
 struct json_value *json_object_get(struct json_value *v, const char *key) {
     const size_t length = strlen(key) + 1;
 
@@ -642,3 +692,17 @@ struct json_value *json_object_get(struct json_value *v, const char *key) {
 
     return NULL;
 }
+
+#ifdef JSON_WITH_ARRAY
+struct json_value *json_array_get(struct json_value *v, int index) {
+    if (v->type != JSON_ARRAY) {
+        return NULL;
+    }
+
+    if (index >= v->array.count) {
+        return NULL;
+    }
+
+    return v->array.items[index];
+}
+#endif
