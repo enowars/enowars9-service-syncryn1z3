@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import websockets.asyncio.client
 import websockets.exceptions
 import typing
@@ -59,14 +60,16 @@ app = lambda: checker.app
 Utility annotations
 """
 
-def singleton(c):
-    instances = {}
+thread_local = threading.local()
+
+def thread_singleton(c):
+    thread_local.instances = {}
 
     def get_instance(*args, **kwargs):
-        if c not in instances:
-            instances[c] = c(*args, **kwargs)
+        if c not in thread_local.instances:
+            thread_local.instances[c] = c(*args, **kwargs)
             
-        return instances[c]
+        return thread_local.instances[c]
     
     return get_instance
 
@@ -226,7 +229,7 @@ class WsConnection:
         
         return message
 
-@singleton
+@thread_singleton
 class WsClientPool:
     CLEANUP_INTERVAL = 10
     MIN_TIMEOUT = 300
