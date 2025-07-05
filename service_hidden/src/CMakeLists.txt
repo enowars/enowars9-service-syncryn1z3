@@ -5,6 +5,10 @@ add_library(json SHARED json.c strcpy.c strlen.c strncmp.c)
 add_executable(json_test json_test.c)
 
 target_compile_options(json PRIVATE -O0 -fno-plt)
+set_target_properties(json PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../service/lib)
+
+# Preserve function names, but remove source file paths
+add_custom_command(TARGET json POST_BUILD COMMAND strip --strip-debug $<TARGET_FILE:json> COMMENT "Stripping debug info")
 
 # Make the reversing harder/easier
 # add_compile_definitions(JSON_WITH_ARRAY)

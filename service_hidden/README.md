@@ -9,9 +9,3 @@ cd build
 cmake ..
 make
 ```
-
-# Strip binary
-This preserves the function names, but removes source file paths.
-```
-strip --strip-debug src/libjson.so
-```
