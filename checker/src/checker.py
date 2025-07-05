@@ -1024,6 +1024,25 @@ async def havoc_many_tlvs(
             
     raise MumbleException("Expected management TLV in response")
 
+@checker.havoc(3)
+async def havoc_long_json(
+    task: HavocCheckerTaskMessage,
+    connection: WsConnection,
+    logger: LoggerAdapter,    
+) -> None:
+    await connection.send("{\"\":" * 1024)
+    response = await connection.receive()
+
+    try:
+        response_decoded = json.loads(response)
+    except json.JSONDecodeError:
+        raise MumbleException("Failed to decode JSON reponse")
+
+    try:
+        response_decoded["error"], response_decoded["code"]
+    except KeyError:
+        raise MumbleException("Expected 'error' and 'code' key in JSON response")
+
 @checker.exploit(0)
 async def exploit_memcmp(
     task: ExploitCheckerTaskMessage,
