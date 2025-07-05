@@ -130,11 +130,6 @@ static int udp_setup_port(struct udp_state *state, struct udp_instance *instance
 
     printf("UDP server listening on port %d...\n", instance->port);
 
-    ret = util_mempool_setup(&state->mempool, sizeof(struct common_message_info), COMMON_MEMPOOL_SIZE);
-    if (ret) {
-        goto out;
-    }
-
     ret = uv_poll_init(state->config->loop, &instance->handle, instance->fd);
     if (ret) {
         util_error(ret, "Failed to initialize uv poll handle");
@@ -161,21 +156,31 @@ int udp_setup(struct udp_state *state, struct udp_config *config) {
     memset(state, 0, sizeof(*state));
     state->config = config;
 
+    ret = util_mempool_setup(&state->mempool, sizeof(struct common_message_info), COMMON_MEMPOOL_SIZE);
+    if (ret) {
+        return ret;
+    }
+
     state->instances[COMMON_PORT_TYPE_EVENT].port = state->config->event_port;
     state->instances[COMMON_PORT_TYPE_EVENT].port_type = COMMON_PORT_TYPE_EVENT;
     ret = udp_setup_port(state, &state->instances[COMMON_PORT_TYPE_EVENT]);
     if (ret) {
-        return ret;
+        goto out;
     }
 
     state->instances[COMMON_PORT_TYPE_GENERAL].port = state->config->general_port;
     state->instances[COMMON_PORT_TYPE_GENERAL].port_type = COMMON_PORT_TYPE_GENERAL;
     ret = udp_setup_port(state, &state->instances[COMMON_PORT_TYPE_GENERAL]);
     if (ret) {
-        return ret;
+        goto out;
     }
 
     return 0;
+
+out:
+    util_mempool_cleanup(&state->mempool);
+
+    return ret;
 }
 
 int udp_cleanup(struct udp_state *state) {

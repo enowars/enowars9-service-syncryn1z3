@@ -198,6 +198,7 @@ static int ptp_handle_management_time_get(struct ptp_state *state, struct common
     tlv->type = PTP_TLV_TYPE_MANAGEMENT;
     tlv->payload.management.id = PTP_MANAGEMENT_ID_TIME;
 
+    // Timestamp itself is very accurate, but the peer is not able to calculate the propagation delay
     tlv->payload.management.payload.time = ptp_get_port_time(state, transaction->request->message.payload.management.target_port_id);
 
     return 0;

@@ -10,3 +10,4 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O2")
 
 add_subdirectory(src)
+add_subdirectory(lib)

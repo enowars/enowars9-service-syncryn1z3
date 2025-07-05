@@ -10,4 +10,4 @@ file(GLOB HEADERS *.h)
 add_library(udp ${SOURCES} ${HEADERS})
 
 target_include_directories(udp PUBLIC ${LIBUV_INCLUDE_DIRS})
-target_link_libraries(udp PRIVATE ${LIBUV_LIBRARIES} timing)
+target_link_libraries(udp PRIVATE ${LIBUV_LIBRARIES})

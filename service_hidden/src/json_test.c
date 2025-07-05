@@ -7,7 +7,7 @@
 #include "json.h"
 
 
-int main() {
+int test_parsing() {
     int ret;
     const char* test_cases[] = {
         "{}", 
@@ -70,5 +70,88 @@ int main() {
         ++test_case;
     }
 
+    return 0;
+}
+
+int test_access() {
+    int ret;
+    const char* test_case = "{\"task\":\"get_clocks\",\"length\":10}";
+
+    struct json_value *val = json_parse(test_case, strlen(test_case));
+
+    struct json_value *task = json_object_get(val, "task");
+
+    if (!json_string_get(task)) {
+        printf("Failed to get task\n");
+    }
+
+    if (strcmp(json_string_get(task), "get_clocks")) {
+        printf("wrong task\n");
+    }
+
+    json_free(val);
+
+    return 0;
+}
+
+int test_creation() {
+    int ret;
+
+    struct json_value *val = json_create_object();
+    json_object_push(val, "task", json_create_string("get_clocks"));
+    json_object_push(val, "length", json_create_number(10));
+
+    struct json_value *task = json_object_get(val, "task");
+    struct json_value *length = json_object_get(val, "length");
+
+    if (!json_string_get(task)) {
+        printf("Failed to get task\n");
+    }
+
+    if (strcmp(json_string_get(task), "get_clocks")) {
+        printf("wrong task\n");
+    }
+
+    if (!json_number_get(length)) {
+        printf("Failed to get length\n");
+    }
+
+    if (*json_number_get(length) != 10) {
+        printf("wrong length\n");
+    }
+
+    char buf[1000];
+    ret = json_serialize(val, buf, sizeof(buf));
+    if (ret) {
+        printf("failed to serialize JSON\n");
+    }
+
+    if (strcmp(buf, "{\"task\":\"get_clocks\",\"length\":10}")) {
+        printf("wrong serialization\n");
+    }
+
+    json_free(val);
+
+    return 0;
+}
+
+int main() {
+    int ret;
+
+    ret = test_parsing();
+    if (ret) {
+        return -ret;
+    }
+
+    ret = test_access();
+    if (ret) {
+        return -ret;
+    }
+
+    ret = test_creation();
+    if (ret) {
+        return -ret;
+    }
+    
     return 0;
 }

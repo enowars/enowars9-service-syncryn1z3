@@ -12,12 +12,12 @@ struct json_value *json_create_object();
 void json_free(struct json_value *value);
 
 // Set
-int json_object_push(struct json_value *parent, char *key, struct json_value *child);
+int json_object_push(struct json_value *parent, const char *key, struct json_value *child);
 
 // Get
-uint64_t *json_number_get(struct json_value *value);
-const char *json_string_get(struct json_value *value);
-struct json_value *json_object_get(struct json_value *value, const char *key);
+const uint64_t *json_number_get(const struct json_value *value);
+const char *json_string_get(const struct json_value *value);
+struct json_value *json_object_get(const struct json_value *value, const char *key);
 
 // Conversion
 struct json_value *json_parse(const char *in, size_t size);

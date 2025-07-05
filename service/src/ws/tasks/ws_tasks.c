@@ -5,7 +5,7 @@
 #include <stdarg.h>
 #include <errno.h>
 
-#include <cjson/cJSON.h>
+#include <json.h>
 #include <libwebsockets.h>
 
 #include <db/db.h>
@@ -19,16 +19,15 @@
 #define WS_MAX_PAGE_SIZE 16
 #define WS_MAX_RESPONSE_SIZE 4096
 
-static int ws_send_response(struct ws_message *request, cJSON *response_json) {
+static int ws_send_response(struct ws_message *request, struct json_value *response_json) {
     int ret;
 
     void *response_buffer = malloc(WS_MAX_RESPONSE_SIZE + LWS_PRE);
     char *response = ((char *)response_buffer) + LWS_PRE;
 
-    if (!cJSON_PrintPreallocated(response_json, response, WS_MAX_RESPONSE_SIZE, false)) {
+    ret = json_serialize(response_json, response, WS_MAX_RESPONSE_SIZE);
+    if (ret) {
         fprintf(stderr, "Failed to serialize JSON response\n");
-        
-        ret = -1;
         goto out;
     }
 
@@ -41,7 +40,7 @@ static int ws_send_response(struct ws_message *request, cJSON *response_json) {
 
 out:
     free(response_buffer);
-    
+
     return ret;
 }
 
@@ -54,22 +53,14 @@ static int ws_send_error_va(struct ws_message *request, int code, const char *fo
         return ret;
     }
 
-    cJSON *response_json = cJSON_CreateObject();
+    struct json_value *response_json = json_create_object();
 
-    if (!cJSON_AddStringToObject(response_json, "error", message)) {
-        ret = -1;
-        goto out;
-    }
-
-    if (!cJSON_AddNumberToObject(response_json, "code", code)) {
-        ret = -1;
-        goto out;
-    }
+    json_object_push(response_json, "error", json_create_string(message));
+    json_object_push(response_json, "code", json_create_number(util_error_int(code)));
 
     ret = ws_send_response(request, response_json);
 
-out:
-    cJSON_Delete(response_json);
+    json_free(response_json);
     
     return ret;
 }
@@ -81,90 +72,75 @@ static inline int ws_send_error(struct ws_message *request, int code, const char
     return ws_send_error_va(request, code, format, va_args); 
 }
 
-int ws_handle_task_get_clocks(struct ws_state *state, struct ws_message *request, cJSON *request_json) {   
+static int ws_handle_task_get_clocks(struct ws_state *state, struct ws_message *request, struct json_value *request_json) {   
     int ret;
     struct db_entry *entries[WS_MAX_PAGE_SIZE];
 
-    cJSON *length_json = cJSON_GetObjectItemCaseSensitive(request_json, "length");
+    struct json_value *length_json = json_object_get(request_json, "length");
 
-    if (!cJSON_IsNumber(length_json)) {
-        return ws_send_error(request, ret, "Missing value");
+    if (!json_number_get(length_json)) {
+        return ws_send_error(request, EINVAL, "Missing value");
     }
 
-    const short length = (length_json->valuedouble) >= 1 ? ((length_json->valuedouble) <= WS_MAX_PAGE_SIZE ? length_json->valuedouble : WS_MAX_PAGE_SIZE) : 1;
+    const short length = *json_number_get(length_json) >= 1 ? (*json_number_get(length_json) <= WS_MAX_PAGE_SIZE ? *json_number_get(length_json) : WS_MAX_PAGE_SIZE) : 1;
 
     ret = db_get_recent(state->config->db_state, entries, length);
     if (ret) {
         return ws_send_error(request, ret, "Failed to get clocks from database");
     }
 
-    cJSON *response_json = cJSON_CreateObject();
-    
-    if (!cJSON_AddStringToObject(response_json, "task", "get_clocks")) {
-        ret = -1;
-        goto out;
-    }
+    struct json_value *response_json = json_create_object();
 
-    cJSON *ports_json = cJSON_AddArrayToObject(response_json, "ports");
-    if (!ports_json) {
-        ret = -1;
-        goto out;
-    }
+    json_object_push(response_json, "task", json_create_string("get_clocks"));
+    
+    struct json_value *ports_json = json_create_object();
 
     for (int i = 0; i < length; ++i) {
         if (!entries[i]) {
             break;
         }
 
-        cJSON *port_json = cJSON_CreateObject();
+        struct json_value *port_json = json_create_object();
         char hex[17];
 
         snprintf(hex, sizeof(hex), "%lx", entries[i]->port_id.clock_id);
-        if (!cJSON_AddStringToObject(port_json, "clockId", hex)) {
-            cJSON_Delete(port_json);
-            ret = -1;
-            goto out;
-        }
+        json_object_push(port_json, "clockId", json_create_string(hex));
 
         snprintf(hex, sizeof(hex), "%hx", entries[i]->port_id.port);
-        if (!cJSON_AddStringToObject(port_json, "port", hex)) {
-            cJSON_Delete(port_json);
-            ret = -1;
-            goto out;
-        }
+        json_object_push(port_json, "port", json_create_string(hex));
 
-        if (!cJSON_AddNumberToObject(port_json, "time", (util_get_time_ns() + entries[i]->offset) / 1000000000L)) {
-            cJSON_Delete(port_json);
-            ret = -1;
-            goto out;
-        }
+        json_object_push(port_json, "time", json_create_number((util_get_time_ns() + entries[i]->offset) / 1000000000L));
 
-        cJSON_AddItemToArray(ports_json, port_json);       
+        char index_string[3];
+        snprintf(index_string, sizeof(index_string), "%d", i);
+
+        json_object_push(ports_json, index_string, port_json);    
     }
+
+    json_object_push(response_json, "ports", ports_json);  
 
     ret = ws_send_response(request, response_json);
 
-out:
-    cJSON_Delete(response_json);
+    json_free(response_json);
     
     return ret;
 }
 
-int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_message *request, cJSON *request_json) {   
+static int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_message *request, struct json_value *request_json) {   
     int ret;
     struct db_entry *entry;
 
-    cJSON *clock_id_json = cJSON_GetObjectItemCaseSensitive(request_json, "clockId");
-    cJSON *port_json = cJSON_GetObjectItemCaseSensitive(request_json, "port");
-    cJSON *secret_json = cJSON_GetObjectItemCaseSensitive(request_json, "secret");
+    struct json_value *clock_id_json = json_object_get(request_json, "clockId");
+    struct json_value *port_json = json_object_get(request_json, "port");
+    struct json_value *secret_json = json_object_get(request_json, "secret");
 
-    if (!cJSON_IsString(clock_id_json) || !cJSON_IsString(port_json) || !cJSON_IsString(secret_json)) {
+    if (!json_string_get(clock_id_json) || !json_string_get(port_json) || !json_string_get(secret_json)) {
         return ws_send_error(request, EINVAL, "Missing value");
     }
 
     struct ptp_decoded_port_id port_id;
-    port_id.clock_id = strtoul(clock_id_json->valuestring, NULL, 16);
-    port_id.port = strtoul(port_json->valuestring, NULL, 16);
+    port_id.clock_id = strtoul(json_string_get(clock_id_json), NULL, 16);
+    port_id.port = strtoul(json_string_get(port_json), NULL, 16);
 
     ret = db_get(state->config->db_state, &entry, port_id);
     if (ret) {
@@ -176,58 +152,36 @@ int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_message *requ
     }
 
     if (entry->authentication_policy != PTP_AUTHENTICATION_POLICY_NONE) {
-        ret = strncmp(entry->secret, secret_json->valuestring, DB_SECRET_SIZE);
+        ret = strncmp(entry->secret, json_string_get(secret_json), DB_SECRET_SIZE);
         if (ret) {
             return ws_send_error(request, ret, "Wrong secret");
         }
     }
 
-    cJSON *response_json = cJSON_CreateObject();
-
-    if (!cJSON_AddStringToObject(response_json, "task", "inspect_clock")) {
-        ret = -1;
-        goto out;
-    }
+    struct json_value *response_json = json_create_object();
+    json_object_push(response_json, "task", json_create_string("inspect_clock"));
 
     char hex[17];
 
     snprintf(hex, sizeof(hex), "%lx", entry->port_id.clock_id);
-    if (!cJSON_AddStringToObject(response_json, "clockId", hex)) {
-        ret = -1;
-        goto out;
-    }
+    json_object_push(response_json, "clockId", json_create_string(hex));
 
     snprintf(hex, sizeof(hex), "%hx", entry->port_id.port);
-    if (!cJSON_AddStringToObject(response_json, "port", hex)) {
-        ret = -1;
-        goto out;
-    }
+    json_object_push(response_json, "port", json_create_string(hex));
 
     switch (entry->authentication_policy) {
         case PTP_AUTHENTICATION_POLICY_NONE: {
-            if (!cJSON_AddStringToObject(response_json, "authenticationPolicy", "none")) {
-                ret = -1;
-                goto out;
-            }
-
+            json_object_push(response_json, "authenticationPolicy", json_create_string("none"));
             break;
         }
 
         case PTP_AUTHENTICATION_POLICY_PLAIN: {
-            if (!cJSON_AddStringToObject(response_json, "authenticationPolicy", "plain")) {
-                ret = -1;
-                goto out;
-            }
-
+            json_object_push(response_json, "authenticationPolicy", json_create_string("plain"));
             break;
         }
 
         case PTP_AUTHENTICATION_POLICY_HMAC_128: {
-            if (!cJSON_AddStringToObject(response_json, "authenticationPolicy", "hmac")) {
-                ret = -1;
-                goto out;
-            }
-
+            json_object_push(response_json, "authenticationPolicy", json_create_string("hmac"));
             break;
         }
     }
@@ -238,55 +192,52 @@ int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_message *requ
         goto out;
     }
 
-    if (!cJSON_AddStringToObject(response_json, "userDescription", user_description_base64)) {
-        ret = -1;
-        goto out;
-    }
+    json_object_push(response_json, "userDescription", json_create_string(user_description_base64));
 
     ret = ws_send_response(request, response_json);
 
 out:
-    cJSON_Delete(response_json);
+    json_free(response_json);
     
     return ret;
 }
 
-int ws_handle_task_create_clock(struct ws_state *state, struct ws_message *request, cJSON *request_json) {   
+static int ws_handle_task_create_clock(struct ws_state *state, struct ws_message *request, struct json_value *request_json) {   
     int ret;
     struct db_entry *entries[WS_MAX_PAGE_SIZE];
 
-    cJSON *clock_id_json = cJSON_GetObjectItemCaseSensitive(request_json, "clockId");
-    cJSON *port_json = cJSON_GetObjectItemCaseSensitive(request_json, "port");
-    cJSON *offset_seconds_json = cJSON_GetObjectItemCaseSensitive(request_json, "offsetSeconds");
-    cJSON *offset_nanoseconds_json = cJSON_GetObjectItemCaseSensitive(request_json, "offsetNanoseconds");
-    cJSON *authentication_policy_json = cJSON_GetObjectItemCaseSensitive(request_json, "authenticationPolicy");
-    cJSON *visible_json = cJSON_GetObjectItemCaseSensitive(request_json, "visible");
-    cJSON *secret_json = cJSON_GetObjectItemCaseSensitive(request_json, "secret");
-    cJSON *user_description_json = cJSON_GetObjectItemCaseSensitive(request_json, "userDescription");
+    struct json_value *clock_id_json = json_object_get(request_json, "clockId");
+    struct json_value *port_json = json_object_get(request_json, "port");
+    struct json_value *offset_seconds_json = json_object_get(request_json, "offsetSeconds");
+    struct json_value *offset_nanoseconds_json = json_object_get(request_json, "offsetNanoseconds");
+    struct json_value *authentication_policy_json = json_object_get(request_json, "authenticationPolicy");
+    struct json_value *visible_json = json_object_get(request_json, "visible");
+    struct json_value *secret_json = json_object_get(request_json, "secret");
+    struct json_value *user_description_json = json_object_get(request_json, "userDescription");
 
-    if (!cJSON_IsString(clock_id_json) || !cJSON_IsString(port_json) || !cJSON_IsNumber(offset_seconds_json) || !cJSON_IsNumber(offset_nanoseconds_json) || !cJSON_IsString(authentication_policy_json) || !cJSON_IsBool(visible_json) || !cJSON_IsString(secret_json) || !cJSON_IsString(user_description_json)) {
+    if (!json_string_get(clock_id_json) || !json_string_get(port_json) || !json_number_get(offset_seconds_json) || !json_number_get(offset_nanoseconds_json) || !json_string_get(authentication_policy_json) || !json_number_get(visible_json) || !json_string_get(secret_json) || !json_string_get(user_description_json)) {
         return ws_send_error(request, EINVAL, "Missing value");
     }
 
     struct db_entry entry;
-    entry.port_id.clock_id = strtoul(clock_id_json->valuestring, NULL, 16);
-    entry.port_id.port = strtoul(port_json->valuestring, NULL, 16);
-    entry.offset = ((int64_t)offset_seconds_json->valuedouble) * 1000000000L + (int64_t)offset_nanoseconds_json->valuedouble - util_get_time_ns();
-    entry.visible = cJSON_IsTrue(visible_json);
-    strncpy(entry.secret, secret_json->valuestring, DB_SECRET_SIZE);
+    entry.port_id.clock_id = strtoul(json_string_get(clock_id_json), NULL, 16);
+    entry.port_id.port = strtoul(json_string_get(port_json), NULL, 16);
+    entry.offset = *json_number_get(offset_seconds_json) * 1000000000L + *json_number_get(offset_nanoseconds_json) - util_get_time_ns();
+    entry.visible = *json_number_get(visible_json);
+    strncpy(entry.secret, json_string_get(secret_json), DB_SECRET_SIZE);
 
-    ret = util_base64_decode(entry.user_description, user_description_json->valuestring, DB_USER_DESCRIPTION_SIZE);
+    ret = util_base64_decode(entry.user_description, json_string_get(user_description_json), DB_USER_DESCRIPTION_SIZE);
     if (ret < 0) {
         return ws_send_error(request, ret, "Base64 decoding failed");
     }
 
     entry.user_description_length = ret;
 
-    if (!strcmp(authentication_policy_json->valuestring, "none")) {
+    if (!strcmp(json_string_get(authentication_policy_json), "none")) {
         entry.authentication_policy = PTP_AUTHENTICATION_POLICY_NONE;
-    } else if (!strcmp(authentication_policy_json->valuestring, "plain")) {
+    } else if (!strcmp(json_string_get(authentication_policy_json), "plain")) {
         entry.authentication_policy = PTP_AUTHENTICATION_POLICY_PLAIN;
-    } else if (!strcmp(authentication_policy_json->valuestring, "hmac")) {
+    } else if (!strcmp(json_string_get(authentication_policy_json), "hmac")) {
         entry.authentication_policy = PTP_AUTHENTICATION_POLICY_HMAC_128;
     } else {
         return ws_send_error(request, EINVAL, "Invalid authentication policy");
@@ -297,35 +248,31 @@ int ws_handle_task_create_clock(struct ws_state *state, struct ws_message *reque
         return ws_send_error(request, ret, "Failed to create clock in database");
     }
 
-    cJSON *response_json = cJSON_CreateObject();
+    struct json_value *response_json = json_create_object();
     
-    if (!cJSON_AddStringToObject(response_json, "task", "create_clock")) {
-        ret = -1;
-        goto out;
-    }
+    json_object_push(response_json, "task", json_create_string("create_clock"));
 
     ret = ws_send_response(request, response_json);
     
-out:
-    cJSON_Delete(response_json);
+    json_free(response_json);
     
     return ret;
 }
 
-int ws_handle_task(struct ws_state *state, struct ws_message *request, cJSON *request_json) {   
+static int ws_handle_task(struct ws_state *state, struct ws_message *request, struct json_value *request_json) {   
     int ret;
 
-    const cJSON *task_json = cJSON_GetObjectItemCaseSensitive(request_json, "task");
+    struct json_value *task_json = json_object_get(request_json, "task");
     
-    if (!cJSON_IsString(task_json)) {
+    if (!json_string_get(task_json)) {
         return ws_send_error(request, EINVAL, "Missing task string");
     }
 
-    if (!strcmp(task_json->valuestring, "get_clocks")) {
+    if (!strcmp(json_string_get(task_json), "get_clocks")) {
         ret = ws_handle_task_get_clocks(state, request, request_json);
-    } else if (!strcmp(task_json->valuestring, "inspect_clock")) {
+    } else if (!strcmp(json_string_get(task_json), "inspect_clock")) {
         ret = ws_handle_task_inspect_clock(state, request, request_json);
-    } else if (!strcmp(task_json->valuestring, "create_clock")) {
+    } else if (!strcmp(json_string_get(task_json), "create_clock")) {
         ret = ws_handle_task_create_clock(state, request, request_json);
     } else {
         return ws_send_error(request, EINVAL, "Invalid task");
@@ -340,33 +287,16 @@ int ws_handle_task(struct ws_state *state, struct ws_message *request, cJSON *re
 
 int ws_handle_message(struct ws_state *state, struct ws_message *request) {   
     int ret;
-    cJSON *request_json;
+    struct json_value *request_json;
     
-    request_json = cJSON_ParseWithLength(request->data, request->length);
+    request_json = json_parse(request->data, request->length);
     if (!request_json) {
-        const char *error_string = cJSON_GetErrorPtr() - 16;
-        int error_string_length = 32;
-        
-        if (error_string < request->data) {
-            error_string = request->data;
-        }
-        
-        if (error_string + error_string_length > request->data + request->length) {
-            error_string_length = request->data + request->length - error_string;
-        }
-
-        if (error_string) {
-            return ws_send_error(request, EINVAL, "JSON parse error around '%.*s'", error_string_length, error_string);
-        }
-
-        ret = -1;
-        goto out;
+        return ws_send_error(request, EINVAL, "JSON parse error");
     }
 
     ret = ws_handle_task(state, request, request_json);
 
-out:
-    cJSON_Delete(request_json);
+    json_free(request_json);
 
     return ret;
 }

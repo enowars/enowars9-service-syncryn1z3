@@ -54,7 +54,7 @@ static inline int util_mempool_setup(struct util_mempool *mempool, short length,
 }
 
 static inline int util_mempool_cleanup(struct util_mempool *mempool) {
-    free(mempool->start - UTIL_MEMPOOL_GUARD_LENGTH);
+    free((void *)mempool->start - UTIL_MEMPOOL_GUARD_LENGTH);
 
     return 0;
 }

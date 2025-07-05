@@ -48,6 +48,7 @@ struct json_value {
 
 static struct json_value *_json_parse(const char **input, const char *end);
 static int _json_serialize(const struct json_value *v, char **out, char *end);
+static int _json_object_push(struct json_value *parent, char *key, struct json_value *child);
 
 #ifdef JSON_WITH_ARRAY
 struct json_value *json_create_array();
@@ -108,7 +109,7 @@ static char *_parse_string(const char **in, const char *end) {
 static int _serialize_string(const char *s, char **out, const char *end) {
     char *p = *out;
 
-    if (s >= end) {
+    if (p >= end) {
         return -1;
     }
 
@@ -131,7 +132,7 @@ static int _serialize_string(const char *s, char **out, const char *end) {
         ++s;
     }
 
-    if (s + 1 >= end) {
+    if (p + 1 >= end) {
         return -1;
     }
 
@@ -224,7 +225,7 @@ static struct json_value *_json_parse_object(const char **in, const char *end) {
                 goto out;
             }
 
-            if (json_object_push(v, key, value)) {
+            if (_json_object_push(v, key, value)) {
                 free(key);
                 json_free(value);
                 goto out;
@@ -627,7 +628,7 @@ void json_free(struct json_value *v) {
 
 // Modify
 
-int json_object_push(struct json_value *parent, char *key, struct json_value *child) {
+static int _json_object_push(struct json_value *parent, char *key, struct json_value *child) {
     int count = parent->object.count;
 
     parent->object.pairs = realloc(parent->object.pairs, sizeof(struct json_kv_pair) * (count + 1));
@@ -640,6 +641,13 @@ int json_object_push(struct json_value *parent, char *key, struct json_value *ch
     ++parent->object.count;
 
     return 0;
+}
+
+int json_object_push(struct json_value *parent, const char *key, struct json_value *child) {
+    char *copy = malloc(strlen(key) + 1);
+    strcpy(copy, key);
+
+    return _json_object_push(parent, copy, child);
 }
 
 #ifdef JSON_WITH_ARRAY
@@ -661,7 +669,11 @@ int json_array_push(struct json_value *parent, struct json_value *child) {
 
 // Access
 
-uint64_t *json_number_get(struct json_value *v) {
+const uint64_t *json_number_get(const struct json_value *v) {
+    if (!v) {
+        return NULL;
+    }
+
     if (v->type != JSON_NUMBER) {
         return NULL;
     }
@@ -669,7 +681,11 @@ uint64_t *json_number_get(struct json_value *v) {
     return &v->number;
 }
 
-const char *json_string_get(struct json_value *v) {
+const char *json_string_get(const struct json_value *v) {
+    if (!v) {
+        return NULL;
+    }
+
     if (v->type != JSON_STRING) {
         return NULL;
     }
@@ -677,14 +693,19 @@ const char *json_string_get(struct json_value *v) {
     return v->string;
 }
 
-struct json_value *json_object_get(struct json_value *v, const char *key) {
-    const size_t length = strlen(key) + 1;
+struct json_value *json_object_get(const struct json_value *v, const char *key) {
+    if (!v) {
+        return NULL;
+    }
 
     if (v->type != JSON_OBJECT) {
         return NULL;
     }
 
-    for (int i; i < v->object.count; ++i) {
+    // This is stupid, but I need an excuse to use strncmp() in this lib
+    const size_t length = strlen(key) + 1;
+
+    for (int i = 0; i < v->object.count; ++i) {
         if (!strncmp(v->object.pairs[i].key, key, length)) {
             return v->object.pairs[i].value;
         }
