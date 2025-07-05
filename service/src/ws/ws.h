@@ -4,6 +4,8 @@
 
 #include <uv.h>
 
+#define WS_MAX_PACKET_SIZE 4096
+
 struct lws_context;
 
 struct ws_config {

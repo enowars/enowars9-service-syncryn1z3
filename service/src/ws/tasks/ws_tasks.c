@@ -17,21 +17,20 @@
 #include <util/base64.h>
 
 #define WS_MAX_PAGE_SIZE 16
-#define WS_MAX_RESPONSE_SIZE 4096
 
 static int ws_send_response(struct ws_message *request, struct json_value *response_json) {
     int ret;
 
-    void *response_buffer = malloc(WS_MAX_RESPONSE_SIZE + LWS_PRE);
+    void *response_buffer = malloc(WS_MAX_PACKET_SIZE + LWS_PRE);
     char *response = ((char *)response_buffer) + LWS_PRE;
 
-    ret = json_serialize(response_json, response, WS_MAX_RESPONSE_SIZE);
+    ret = json_serialize(response_json, response, WS_MAX_PACKET_SIZE);
     if (ret) {
         fprintf(stderr, "Failed to serialize JSON response\n");
         goto out;
     }
 
-    ret = lws_write(request->socket, (uint8_t *)response, strnlen(response, WS_MAX_RESPONSE_SIZE), LWS_WRITE_TEXT);
+    ret = lws_write(request->socket, (uint8_t *)response, strnlen(response, WS_MAX_PACKET_SIZE), LWS_WRITE_TEXT);
     if (ret < 0) {
         goto out;
     }
