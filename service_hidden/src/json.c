@@ -58,9 +58,30 @@ int json_array_push(struct json_value *parent, struct json_value *child);
 
 // Helper functions
 
+static int _skip_whitespace(const char **in, const char *end) {
+    const char *p = *in;
+
+    while (*p == ' ' || *p == '\n') {
+        if (p >= end) {
+            return -1;
+        }
+
+        ++p;
+    }
+
+    *in = p;
+
+    return 0;
+}
+
 static char *_parse_string(const char **in, const char *end) {
     char *result;
     char *s;
+    
+    if (_skip_whitespace(in, end)) {
+        return NULL;
+    }
+
     const char *p = *in;
     
     if (*p != '"') {
@@ -149,8 +170,13 @@ static int _serialize_string(const char *s, char **out, const char *end) {
 
 static struct json_value *_json_parse_number(const char **in, const char *end) {
     struct json_value *v;
-    const char *p = *in;
     uint64_t n = 0;
+
+    if (_skip_whitespace(in, end)) {
+        return NULL;
+    }
+
+    const char *p = *in;
 
     while (p < end) {
         if (*p < '0' || *p > '9') {
@@ -193,6 +219,11 @@ static struct json_value *_json_parse_string(const char **in, const char *end) {
 
 static struct json_value *_json_parse_object(const char **in, const char *end) {
     struct json_value *v;
+    
+    if (_skip_whitespace(in, end)) {
+        return NULL;
+    }
+
     const char *p = *in;
 
     if (p + 2 > end) {
@@ -242,6 +273,8 @@ static struct json_value *_json_parse_object(const char **in, const char *end) {
             ++p;
         } while (p < end);
     }
+
+    // We should also skip whitespace here, but I don't want to make the reversing too hard
 
     if (*p != '}' || p >= end) {
         goto out;

@@ -433,8 +433,7 @@ async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id
         "visible": 1 if visible else 0,
         "authenticationPolicy": policy,
         "userDescription": base64.b64encode(description).decode(),
-        "secret": secret},
-        separators=(',', ':'))
+        "secret": secret})
     
     await connection.send(request)
     response = await connection.receive()
@@ -468,8 +467,7 @@ async def inspect_clock(connection: WsConnection, logger: LoggerAdapter, clock_i
         "task": "inspect_clock",
         "clockId": f"{clock_id:x}",
         "port": f"{port:x}",
-        "secret": secret},
-        separators=(',', ':'))
+        "secret": secret})
     
     await connection.send(request)
     response = await connection.receive()
@@ -1063,8 +1061,7 @@ async def exploit_memcmp(
                 "task": "inspect_clock",
                 "clockId": f"{clock_id:x}",
                 "port": f"{port:x}",
-                "secret": secret},
-                separators=(',', ':'))
+                "secret": secret})
     
             await connection.send(request)
             response = await connection.receive()
