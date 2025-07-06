@@ -8,63 +8,56 @@
 #include <ws/tasks/ws_tasks.h>
 
 static int ws_callback(struct lws *socket, enum lws_callback_reasons reason, void *user, void *data, size_t length) {
+    if (reason != LWS_CALLBACK_RECEIVE) {
+        return 0;
+    }
+
+    int ret = 0;
     struct ws_state *state = (struct ws_state *)lws_context_user(lws_get_context(socket));
     struct ws_message *session = (struct ws_message *)user;
 
-    switch (reason) {
-        case LWS_CALLBACK_RECEIVE: {
-            if (lws_is_first_fragment(socket)) {
-                session->socket = socket;
-                
-                if (lws_is_final_fragment(socket)) {
-                    session->fragmented = false;
-                    session->data = (char *)data;
-                    session->length = length;
-                    
-                    return ws_handle_message(state, session);
-                } else {
-                    session->fragmented = true;
-                    session->data = malloc(length);
-                    if (!session->data) {
-                        return -ENOMEM;
-                    }
-
-                    memcpy(session->data, data, length);
-                    session->length = length;
-                }
-            } else {
-                short new_length = session->length + length;
-
-                if (!new_length > WS_MAX_PACKET_SIZE) {
-                    return -EMSGSIZE;
-                }
-
-                session->data = realloc(session->data, new_length);
-                if (!session->data) {
-                    return -ENOMEM;
-                }
-
-                memcpy(session->data + session->length, data, length);
-                session->length += length;
-
-                if (lws_is_final_fragment(socket)) {
-                    return ws_handle_message(state, session);
-                }
+    if (lws_is_first_fragment(socket)) {
+        session->socket = socket;
+        
+        if (lws_is_final_fragment(socket)) {
+            session->fragmented = false;
+            session->data = (char *)data;
+            session->length = length;
+            
+            ret = ws_handle_message(state, session);
+        } else {
+            session->fragmented = true;
+            session->data = malloc(length);
+            
+            if (!session->data) {
+                return -ENOMEM;
             }
 
-            break;
+            memcpy(session->data, data, length);
+            session->length = length;
+        }
+    } else {
+        short new_length = session->length + length;
+
+        if (!new_length > WS_MAX_PACKET_SIZE) {
+            return -EMSGSIZE;
         }
 
-        case LWS_CALLBACK_CLOSED: {
-            if (session->fragmented) {
-                free(session->data);
-            }
+        session->data = realloc(session->data, new_length);
+        if (!session->data) {
+            return -ENOMEM;
+        }
 
-            break;
+        memcpy(session->data + session->length, data, length);
+        session->length += length;
+
+        if (lws_is_final_fragment(socket)) {
+            ret = ws_handle_message(state, session);
+            free(session->data);
         }
     }
 
-    return 0;
+    return ret;
 }
 
 static struct lws_protocols protocols[] = {
