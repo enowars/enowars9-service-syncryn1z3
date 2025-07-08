@@ -113,11 +113,11 @@ def _decode_bf(input: str) -> str:
     return brainfuckery.Brainfuckery().interpret(input)
 
 def is_bf(s: str):
-    return re.fullmatch(r"[+\-<>\[\]\.]{100,}", s) is not None
+    return re.fullmatch(r"@?[+\-<>\[\]\.]{100,}@?", s) is not None
 
 def encode(input: str) -> bytes:
     decoded = _decode_bf(input)
-    encoded = _encode_bf_simple(decoded)
+    encoded = "@" + _encode_bf_simple(decoded) + "@"
 
     return zlib.compress(encoded.encode("ascii"), level=9)
 
@@ -134,4 +134,4 @@ def decode(input: bytes, reencode=False) -> str:
     
     decoded = _decode_bf(decompressed)
     
-    return _encode_bf_normal(decoded)
+    return "@" + _encode_bf_normal(decoded) + "@"
