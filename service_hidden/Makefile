@@ -13,7 +13,7 @@ TEST_OBJ = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(TEST_SRC))
 
 CC = gcc
 STRIP = strip
-CFLAGS = -O0 -Wall -fPIC -fno-plt -I../service/lib/include
+CFLAGS = -O0 -Wall -fPIC -fstack-protector-all -fno-plt -I../service/lib/include
 LDFLAGS = -shared -nostartfiles -Wl,-T,$(LIB_LD_SCRIPT),-soname,$(notdir ${LIB_TARGET})
 
 

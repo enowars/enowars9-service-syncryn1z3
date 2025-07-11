@@ -27,6 +27,10 @@ SECTIONS {
   .ext : {
     *(.ext)
   } :ext
+
+  .bss : {
+    *(.bss)
+  } :data
   
   . = . + 0x1000;
 
