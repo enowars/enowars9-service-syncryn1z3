@@ -101,7 +101,8 @@ static char *_parse_string(const char **in, const char *end) {
         if (*p == '\\') {
             ++p; // skip escaped character
 
-            if (!(*p)) {
+            if (p >= end || !(*p)) {
+                free(result);
                 return NULL;
             }
         }
@@ -169,7 +170,6 @@ static int _serialize_string(const char *s, char **out, const char *end) {
 // Parsing
 
 static struct json_value *_json_parse_number(const char **in, const char *end) {
-    struct json_value *v;
     uint64_t n = 0;
 
     if (_skip_whitespace(in, end)) {
@@ -527,6 +527,10 @@ static int _json_serialize(const struct json_value *v, char **out, char *end) {
             return _json_serialize_array(v, out, end);
         }
 #endif
+
+        default: {
+            return -1;
+        }
     }
 }
 
@@ -628,6 +632,10 @@ void json_free(struct json_value *v) {
     }
 
     switch (v->type) {
+        case JSON_NUMBER: {
+            break;
+        }
+
         case JSON_STRING: {
             free(v->string);
             break;
@@ -664,11 +672,12 @@ void json_free(struct json_value *v) {
 static int _json_object_push(struct json_value *parent, char *key, struct json_value *child) {
     int count = parent->object.count;
 
-    parent->object.pairs = realloc(parent->object.pairs, sizeof(struct json_kv_pair) * (count + 1));
-    if (!parent->object.pairs) {
+    struct json_kv_pair *new_pairs = realloc(parent->object.pairs, sizeof(struct json_kv_pair) * (count + 1));
+    if (!new_pairs) {
         return -1;
     }
 
+    parent->object.pairs = new_pairs;
     parent->object.pairs[count].key = key;
     parent->object.pairs[count].value = child;
     ++parent->object.count;
@@ -687,11 +696,12 @@ int json_object_push(struct json_value *parent, const char *key, struct json_val
 int json_array_push(struct json_value *parent, struct json_value *child) {
     int count = parent->array.count;
 
-    parent->array.items = realloc(parent->array.items, sizeof(struct json_value) * (count + 1));
-    if (!parent->array.items) {
+    struct json_value *new_items = realloc(parent->array.items, sizeof(struct json_value) * (count + 1));
+    if (!new_items) {
         return -1;
     }
 
+    parent->array.items = new_items;
     parent->array.items[count] = child;
     ++parent->array.count;
 

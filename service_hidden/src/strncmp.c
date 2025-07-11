@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdbool.h>
 #include <time.h>
 
 #define CHARACTER_SLEEP_TIME 0x1000 // 4096 cycles / ~0.9us @ 2.3GHz
@@ -7,27 +8,21 @@ static inline uint64_t __attribute__((always_inline)) _rdtsc() {
     register uint32_t hi;
     register uint32_t lo;
 
-    __asm__ volatile ("rdtsc": "=a"(lo), "=d"(hi));
+    __asm__ volatile("rdtsc": "=a"(lo), "=d"(hi));
 
     return ((uint64_t)hi << 32) | lo;
 }
 
-static inline void _() {
-    register uint64_t t1;
-    register uint64_t t2;
-
-    t1 = _rdtsc();
-
-    do {
-        t2 = _rdtsc();
-    } while (t2 - t1 < CHARACTER_SLEEP_TIME);
-}
-
-int strncmp(const char *a, const char *b, size_t len) {
+int __attribute__((section(".ext"))) strncmp(const char *a, const char *b, size_t len) {
     register int ret;
+    register int i = 0;
     
-    for (int i = 0; i < len; ++i) {
-        _();
+    while (true) {
+        __asm__ volatile("loop_start:");  
+
+        if (i >= len) {
+            break;
+        }
 
         register int reg_a = *a;
         register int reg_b = *b;
@@ -44,9 +39,36 @@ int strncmp(const char *a, const char *b, size_t len) {
 
         ++a;
         ++b;
+        ++i;
+
+        // Will be overwritten on load
+        __asm__ volatile("injection:"); 
+        __asm__ volatile("jmp loop_start");
+
+        register uint64_t t1;
+        register uint64_t t2;
+
+        t1 = _rdtsc();
+
+        // Slow down each iteration
+        do {
+            t2 = _rdtsc();
+        } while (t2 - t1 < CHARACTER_SLEEP_TIME);
     }
 
     ret = 0;
 
     return ret;
+}
+
+int _init() {
+    // Overwrite unconditional jump with NOPs
+    __asm__ volatile("lea injection(%rip), %rax");
+    __asm__ volatile("movw $0x9090, (%rax)");
+
+    return 0;
+}
+
+void _fini() {
+    return;
 }
