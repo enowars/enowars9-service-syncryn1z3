@@ -9,7 +9,7 @@ services:
       - MONGO_PORT=27017
       - MONGO_USER=syncryn1z3
       - MONGO_PASSWORD=syncryn1z3
-    mem_limit: 1G
+    mem_limit: 2G
     memswap_limit: 2G
     ulimits:
       core:
