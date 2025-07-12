@@ -1,4 +1,5 @@
 import asyncio
+import curses
 import random
 import time
 import hmac
@@ -16,8 +17,9 @@ LOCAL_PORT = 2000
 EVENT_PORT = 319
 GENERAL_PORT = 320
 
+
 """
-Utility classes
+PTP utility classes
 """
 
 class PtpException(Exception):
@@ -75,8 +77,9 @@ class AuthInfo:
         self.secret = secret
         self.policy = policy
 
+
 """
-Utility functions
+PTP utility functions
 """
 
 def get_time_ns():
@@ -235,6 +238,16 @@ async def run_synchronization(connection: Connection, auth_info: AuthInfo):
 
     return int(((t1 + t4) - (t2 + t3)) / 2)
 
+async def create_connections(args):
+    transport, protocol = await asyncio.get_running_loop().create_datagram_endpoint(lambda: UdpClientProtocol(args.address), local_addr=("0.0.0.0", LOCAL_PORT))
+
+    return Connection(args.address, protocol)
+
+
+"""
+CLI utility functions
+"""
+
 def parse_args():
     def hex_int(x):
         return int(x, 16)
@@ -246,8 +259,8 @@ def parse_args():
     parser.add_argument("port", type=hex_int, help="Port registered in the server")
     parser.add_argument("--secret", type=str, default="", help="Password to secure the remote port")
     parser.add_argument("--description", type=str, default="", help="Description of the remote port")
-    parser.add_argument("--syncs", type=int, default=5, help="Number of syncs to perform")
-    parser.add_argument("--interval", type=float, default=1, help="Interval in sec between syncs")
+    parser.add_argument("--syncs", type=int, default=100, help="Number of syncs to perform")
+    parser.add_argument("--interval", type=float, default=0.1, help="Interval in sec between syncs")
 
     args = parser.parse_args()
 
@@ -258,13 +271,43 @@ def parse_args():
     
     return args
 
-async def create_connections(args):
-    transport, protocol = await asyncio.get_running_loop().create_datagram_endpoint(lambda: UdpClientProtocol(args.address), local_addr=("0.0.0.0", LOCAL_PORT))
+def draw_graph(stdscr, data, start_y, start_x, height, width):
+    for i in range(height):
+        y = start_y + i
+        stdscr.addstr(y, start_x, '|')
+        stdscr.addstr(y, start_x + width, '|')
 
-    return Connection(args.address, protocol)
+    stdscr.addstr(start_y + height, start_x, '+' + '-' * (width - 1) + '+')
 
-async def main():
-    args = parse_args()
+    if len(data) == 0:
+        return
+
+    max_val = max(data)
+    min_val = min(data)
+    scale = (height - 2) / (max_val - min_val) if max_val != min_val else 1
+
+    stdscr.addstr(start_y, start_x + width + 2, f"{round(max_val)} ppm")
+    stdscr.addstr(start_y + height, start_x + width + 2, f"{round(min_val)} ppm")
+
+    for i, val in enumerate(data[-min(width - 1, len(data)):]):
+        y = int(scale * (val - min_val))
+        y = start_y + height - 1 - y
+        if 0 <= y < curses.LINES:
+            stdscr.addstr(y, start_x + i + 1, '*')
+
+def wait_for_exit(stdscr):
+    try:
+        key = stdscr.getch()
+        if key == ord('q'):
+            return True
+    except curses.error:
+        return False
+
+async def loop(stdscr, args):
+    curses.curs_set(0)
+    curses.start_color()
+    curses.use_default_colors()
+    stdscr.nodelay(True)
 
     connection = await create_connections(args)
 
@@ -277,27 +320,54 @@ async def main():
         auth_info.policy = "plain"
         description = await get_user_description(connection, auth_info)
 
-    print(f"Connected to clock: {args.clock_id:x}/{args.port:x}")
-    print(f"Description: {description}")
-
     offset = await get_offset(connection, auth_info)
+    last_time_ns = get_time_ns() + offset
+    drift = []
 
-    for _ in range(args.syncs):
+    for i in range(args.syncs):
+        rows, cols = stdscr.getmaxyx()
+        if rows < 20 or cols < 60:
+            raise PtpException("Minimal terminal size: 20x60")
+
+        stdscr.erase()
+        stdscr.addstr(0, 0, "Welcome to the syncryn1z3 network clock inspector!")
+        stdscr.addstr(2, 0, f"Connected to clock: {args.clock_id:x}/{args.port:x}")
+        stdscr.addstr(3, 0, f"Description: {description}")
+
         error = await run_synchronization(connection, auth_info)
 
         current_time_ns = get_time_ns() + error + offset
         timestamp_seconds = math.floor(current_time_ns / 1000000000)
         timestamp_nanoseconds = current_time_ns % 1000000000
 
-        print("Time: {}:{:09d}".format(datetime.datetime.fromtimestamp(timestamp_seconds, datetime.timezone.utc).strftime("%d.%m.%Y / %H:%M:%S"), timestamp_nanoseconds))
+        if i > 0:
+            drift.append(1000000 * error / (current_time_ns - last_time_ns))
+            drift = drift[-40:]
+
+        stdscr.addstr(5, 0, "Drift:")
+        draw_graph(stdscr, drift, 6, 0, 10, 40)
+        
+        stdscr.addstr(18, 0, "Time: {}:{:09}".format(datetime.datetime.fromtimestamp(timestamp_seconds, datetime.timezone.utc).strftime("%d.%m.%Y / %H:%M:%S"), timestamp_nanoseconds))
+        stdscr.addstr(19, 0, "Press 'q' to quit.")
+        stdscr.refresh()
+
+        last_time_ns = current_time_ns
+
+        if wait_for_exit(stdscr):
+            return
 
         await asyncio.sleep(args.interval)
 
-    print("Exiting")
+    stdscr.nodelay(False)
+    wait_for_exit(stdscr)
 
-if __name__ == "__main__":
+def main():
     try:
-        asyncio.run(main())
-    except PtpException as e:
+        args = parse_args()
+        curses.wrapper(lambda stdscr: asyncio.run(loop(stdscr, args)))
+    except Exception as e:
         print(e)
         exit(1)
+
+if __name__ == "__main__":
+    main()
