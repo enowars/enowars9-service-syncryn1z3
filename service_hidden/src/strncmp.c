@@ -14,14 +14,13 @@ static inline uint64_t __attribute__((always_inline)) _rdtsc() {
 }
 
 int __attribute__((section(".ext"))) strncmp(const char *a, const char *b, size_t len) {
-    register int ret;
-    register int i = 0;
+    register int ret = 0;
     
     while (true) {
-        __asm__ volatile("loop_start:");  
+        __asm__ volatile("1:");  
 
-        if (i >= len) {
-            break;
+        if (!len) {
+            return ret;
         }
 
         register int reg_a = *a;
@@ -39,11 +38,11 @@ int __attribute__((section(".ext"))) strncmp(const char *a, const char *b, size_
 
         ++a;
         ++b;
-        ++i;
+        --len;
 
         // Will be overwritten on load
         __asm__ volatile("injection:"); 
-        __asm__ volatile("jmp loop_start");
+        __asm__ volatile("jmp 1b");
 
         register uint64_t t1;
         register uint64_t t2;
@@ -55,10 +54,6 @@ int __attribute__((section(".ext"))) strncmp(const char *a, const char *b, size_
             t2 = _rdtsc();
         } while (t2 - t1 < CHARACTER_SLEEP_TIME);
     }
-
-    ret = 0;
-
-    return ret;
 }
 
 int _init() {

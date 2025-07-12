@@ -2,9 +2,9 @@ BUILD_DIR = build
 SRC_DIR = src
 
 LIB_TARGET = ../service/lib/libjson.so
-TEST_TARGET = $(BUILD_DIR)/test
+TEST_TARGET = $(BUILD_DIR)/json_test
 
-LIB_SRC = $(SRC_DIR)/json.c $(SRC_DIR)/strcpy.c $(SRC_DIR)/strlen.c $(SRC_DIR)/strncmp.c
+LIB_SRC = $(SRC_DIR)/json.c $(SRC_DIR)/strlen.c $(SRC_DIR)/strcmp.c $(SRC_DIR)/strcpy.c $(SRC_DIR)/strncmp.c
 LIB_OBJ = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(LIB_SRC))
 LIB_LD_SCRIPT = $(SRC_DIR)/link.ld
 
@@ -13,7 +13,7 @@ TEST_OBJ = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(TEST_SRC))
 
 CC = gcc
 STRIP = strip
-CFLAGS = -O0 -Wall -fPIC -fstack-protector-all -fno-plt -I../service/lib/include
+CFLAGS = -O0 -Wall -Wno-stringop-truncation -fPIC -fno-plt -fstack-protector-strong -fcombine-stack-adjustments -fshrink-wrap -fomit-frame-pointer -fmerge-all-constants -I../service/lib/include
 LDFLAGS = -shared -nostartfiles -Wl,-T,$(LIB_LD_SCRIPT),-soname,$(notdir ${LIB_TARGET})
 
 
@@ -28,11 +28,11 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 $(LIB_TARGET): $(LIB_OBJ) $(LIB_LD_SCRIPT)
 	mkdir -p $(dir $@)
 	$(CC) $(LDFLAGS) -o $@ $(filter-out $(LIB_LD_SCRIPT), $^)
-	$(STRIP) --strip-debug --strip-symbol=loop_start --strip-symbol=injection --strip-symbol=init_injection $@
+	$(STRIP) --strip-debug --strip-symbol=injection --strip-symbol=init_injection --remove-section=.comment $@
 
 $(TEST_TARGET): $(TEST_OBJ) $(LIB_TARGET)
 	mkdir -p $(dir $@)
 	$(CC) -o $@ $(TEST_OBJ) $(LIB_TARGET)
 
 clean:
-	rm -rf $(OBJ_DIR) $(LIB_TARGET)
+	rm -rf $(BUILD_DIR) $(LIB_TARGET)

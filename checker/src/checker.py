@@ -430,7 +430,7 @@ async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id
         "port": f"{port:x}",
         "offsetSeconds": offset // 1000000000,
         "offsetNanoseconds": offset % 1000000000,
-        "visible": 1 if visible else 0,
+        "visible": visible,
         "authenticationPolicy": policy,
         "userDescription": base64.b64encode(description).decode(),
         "secret": secret})

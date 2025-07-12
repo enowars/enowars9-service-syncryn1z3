@@ -101,7 +101,7 @@ function createClock() {
     const date = document.getElementById("createDate").value;
     const userDescription = btoa(document.getElementById("createUserDescription").value);
     const authenticationPolicy = document.getElementById("createAuthenticationPolicy").value;
-    const visible = (document.getElementById("createVisible").value == "visible") ? 1 : 0;
+    const visible = document.getElementById("createVisible").value == "visible";
     const secret = document.getElementById("createSecret").value;
 
     try {

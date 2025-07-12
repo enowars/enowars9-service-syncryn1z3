@@ -9,5 +9,5 @@ make
 
 # Run tests
 ```
-LD_PRELOAD=../service/lib/libjson.so ./build/test
+LD_PRELOAD=../service/lib/libjson.so ./build/json_test
 ```

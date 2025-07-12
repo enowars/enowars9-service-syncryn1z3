@@ -9,8 +9,9 @@
 // Types
 
 enum json_type {
-    JSON_NUMBER,
     JSON_STRING,
+    JSON_NUMBER,
+    JSON_BOOLEAN,
     JSON_OBJECT,
 #ifdef JSON_WITH_ARRAY
     JSON_ARRAY,
@@ -26,8 +27,9 @@ struct json_value {
     enum json_type type;
 
     union {
-        uint64_t number;
         char *string;
+        uint64_t number;
+        bool boolean;
 
         struct {
             struct json_kv_pair *pairs;
@@ -61,12 +63,16 @@ int json_array_push(struct json_value *parent, struct json_value *child);
 static int _skip_whitespace(const char **in, const char *end) {
     const char *p = *in;
 
+    if (p >= end) {
+        return -1;
+    }
+
     while (*p == ' ' || *p == '\n') {
+        ++p;
+
         if (p >= end) {
             return -1;
         }
-
-        ++p;
     }
 
     *in = p;
@@ -169,6 +175,27 @@ static int _serialize_string(const char *s, char **out, const char *end) {
 
 // Parsing
 
+static struct json_value *_json_parse_string(const char **in, const char *end) {
+    struct json_value *v;
+    char *s;
+
+    s = _parse_string(in, end);
+    if (!s) {
+        return NULL;
+    }
+
+    v = malloc(sizeof(struct json_value));
+    if (!v) {
+        free(s);
+        return NULL;
+    }
+
+    v->type = JSON_STRING;
+    v->string = s;
+
+    return v;
+}
+
 static struct json_value *_json_parse_number(const char **in, const char *end) {
     uint64_t n = 0;
 
@@ -196,25 +223,38 @@ static struct json_value *_json_parse_number(const char **in, const char *end) {
     return json_create_number(n);
 }
 
-static struct json_value *_json_parse_string(const char **in, const char *end) {
-    struct json_value *v;
-    char *s;
+static struct json_value *_json_parse_boolean(const char **in, const char *end) {
+    int ret;
 
-    s = _parse_string(in, end);
-    if (!s) {
+    if (_skip_whitespace(in, end)) {
         return NULL;
     }
 
-    v = malloc(sizeof(struct json_value));
-    if (!v) {
-        free(s);
+    const char *p = *in;
+
+    if (end <= p + sizeof("true") - 1) {
         return NULL;
     }
 
-    v->type = JSON_STRING;
-    v->string = s;
+    ret = strncmp(p, "true", sizeof("true") - 1);
+    if (!ret) {
+        *in = p + sizeof("true") - 1;
 
-    return v;
+        return json_create_boolean(true);
+    }
+
+    if (end <= p + sizeof("false") - 1) {
+        return NULL;
+    }
+
+    ret = strncmp(p, "false", sizeof("false") - 1);
+    if (!ret) {
+        *in = p + sizeof("false") - 1;
+
+        return json_create_boolean(false);
+    }
+    
+    return NULL;
 }
 
 static struct json_value *_json_parse_object(const char **in, const char *end) {
@@ -353,12 +393,17 @@ out:
 static struct json_value *_json_parse(const char **input, const char *end) {
     struct json_value *v = NULL;
 
+    v = _json_parse_string(input, end);
+    if (v) {
+        return v;
+    }
+
     v = _json_parse_number(input, end);
     if (v) {
         return v;
     }
 
-    v = _json_parse_string(input, end);
+    v = _json_parse_boolean(input, end);
     if (v) {
         return v;
     }
@@ -380,6 +425,10 @@ static struct json_value *_json_parse(const char **input, const char *end) {
 
 
 // Serialization
+
+static int _json_serialize_string(const struct json_value *v, char **out, char *end) {
+    return _serialize_string(v->string, out, end);
+}
 
 static int _json_serialize_number(const struct json_value *v, char **out, char *end) {
     char temp[20];
@@ -422,8 +471,26 @@ static int _json_serialize_number(const struct json_value *v, char **out, char *
     return 0;
 }
 
-static int _json_serialize_string(const struct json_value *v, char **out, char *end) {
-    return _serialize_string(v->string, out, end);
+static int _json_serialize_boolean(const struct json_value *v, char **out, char *end) {
+    char *p = *out;
+
+    if (v->boolean) {
+        if (p + 4 >= end) {
+            return -1;
+        }
+
+        __builtin_strncpy(p, "true", 4);
+        *out = p + 4;
+    } else {
+        if (p + 5 >= end) {
+            return -1;
+        }
+
+        __builtin_strncpy(p, "false", 5);
+        *out = p + 5;
+    }
+
+    return 0;
 }
 
 static int _json_serialize_object(const struct json_value *v, char **out, char *end) {
@@ -510,12 +577,16 @@ static int _json_serialize(const struct json_value *v, char **out, char *end) {
     }
 
     switch (v->type) {
+        case JSON_STRING: {
+            return _json_serialize_string(v, out, end);
+        }
+
         case JSON_NUMBER: {
             return _json_serialize_number(v, out, end);
         }
 
-        case JSON_STRING: {
-            return _json_serialize_string(v, out, end);
+        case JSON_BOOLEAN: {
+            return _json_serialize_boolean(v, out, end);
         }
 
         case JSON_OBJECT: {
@@ -557,20 +628,6 @@ int json_serialize(const struct json_value *v, char *out, size_t size) {
 
 // Creation / Deletion
 
-struct json_value *json_create_number(uint64_t n) {
-    struct json_value *v;
-
-    v = malloc(sizeof(struct json_value));
-    if (!v) {
-        return NULL;
-    }
-
-    v->type = JSON_NUMBER;
-    v->number = n;
-
-    return v;
-}
-
 struct json_value *json_create_string(const char *s) {
     struct json_value *v;
     char *copy;
@@ -590,6 +647,34 @@ struct json_value *json_create_string(const char *s) {
 
     v->type = JSON_STRING;
     v->string = copy;
+
+    return v;
+}
+
+struct json_value *json_create_number(uint64_t n) {
+    struct json_value *v;
+
+    v = malloc(sizeof(struct json_value));
+    if (!v) {
+        return NULL;
+    }
+
+    v->type = JSON_NUMBER;
+    v->number = n;
+
+    return v;
+}
+
+struct json_value *json_create_boolean(bool b) {
+    struct json_value *v;
+
+    v = malloc(sizeof(struct json_value));
+    if (!v) {
+        return NULL;
+    }
+
+    v->type = JSON_BOOLEAN;
+    v->boolean = b;
 
     return v;
 }
@@ -631,13 +716,17 @@ void json_free(struct json_value *v) {
         return;
     }
 
-    switch (v->type) {
+    switch (v->type) {        
+        case JSON_STRING: {
+            free(v->string);
+            break;
+        }
+
         case JSON_NUMBER: {
             break;
         }
 
-        case JSON_STRING: {
-            free(v->string);
+        case JSON_BOOLEAN: {
             break;
         }
 
@@ -687,6 +776,10 @@ static int _json_object_push(struct json_value *parent, char *key, struct json_v
 
 int json_object_push(struct json_value *parent, const char *key, struct json_value *child) {
     char *copy = malloc(strlen(key) + 1);
+    if (!copy) {
+        return -1;
+    }
+
     strcpy(copy, key);
 
     return _json_object_push(parent, copy, child);
@@ -696,7 +789,7 @@ int json_object_push(struct json_value *parent, const char *key, struct json_val
 int json_array_push(struct json_value *parent, struct json_value *child) {
     int count = parent->array.count;
 
-    struct json_value *new_items = realloc(parent->array.items, sizeof(struct json_value) * (count + 1));
+    struct json_value *new_items = realloc(parent->array.items, sizeof(struct json_value *) * (count + 1));
     if (!new_items) {
         return -1;
     }
@@ -712,18 +805,6 @@ int json_array_push(struct json_value *parent, struct json_value *child) {
 
 // Access
 
-const uint64_t *json_number_get(const struct json_value *v) {
-    if (!v) {
-        return NULL;
-    }
-
-    if (v->type != JSON_NUMBER) {
-        return NULL;
-    }
-
-    return &v->number;
-}
-
 const char *json_string_get(const struct json_value *v) {
     if (!v) {
         return NULL;
@@ -736,6 +817,30 @@ const char *json_string_get(const struct json_value *v) {
     return v->string;
 }
 
+const uint64_t *json_number_get(const struct json_value *v) {
+    if (!v) {
+        return NULL;
+    }
+
+    if (v->type != JSON_NUMBER) {
+        return NULL;
+    }
+
+    return &v->number;
+}
+
+const bool *json_boolean_get(const struct json_value *v) {
+    if (!v) {
+        return NULL;
+    }
+
+    if (v->type != JSON_BOOLEAN) {
+        return NULL;
+    }
+
+    return &v->boolean;
+}
+
 struct json_value *json_object_get(const struct json_value *v, const char *key) {
     if (!v) {
         return NULL;
@@ -745,11 +850,8 @@ struct json_value *json_object_get(const struct json_value *v, const char *key) 
         return NULL;
     }
 
-    // This is stupid, but I need an excuse to use strncmp() in this lib
-    const size_t length = strlen(key) + 1;
-
     for (int i = 0; i < v->object.count; ++i) {
-        if (!strncmp(v->object.pairs[i].key, key, length)) {
+        if (!strcmp(v->object.pairs[i].key, key)) {
             return v->object.pairs[i].value;
         }
     }

@@ -214,7 +214,7 @@ static int ws_handle_task_create_clock(struct ws_state *state, struct ws_message
     struct json_value *secret_json = json_object_get(request_json, "secret");
     struct json_value *user_description_json = json_object_get(request_json, "userDescription");
 
-    if (!json_string_get(clock_id_json) || !json_string_get(port_json) || !json_number_get(offset_seconds_json) || !json_number_get(offset_nanoseconds_json) || !json_string_get(authentication_policy_json) || !json_number_get(visible_json) || !json_string_get(secret_json) || !json_string_get(user_description_json)) {
+    if (!json_string_get(clock_id_json) || !json_string_get(port_json) || !json_number_get(offset_seconds_json) || !json_number_get(offset_nanoseconds_json) || !json_string_get(authentication_policy_json) || !json_boolean_get(visible_json) || !json_string_get(secret_json) || !json_string_get(user_description_json)) {
         return ws_send_error(request, EINVAL, "Missing value");
     }
 
@@ -222,7 +222,7 @@ static int ws_handle_task_create_clock(struct ws_state *state, struct ws_message
     entry.port_id.clock_id = strtoul(json_string_get(clock_id_json), NULL, 16);
     entry.port_id.port = strtoul(json_string_get(port_json), NULL, 16);
     entry.offset = *json_number_get(offset_seconds_json) * 1000000000L + *json_number_get(offset_nanoseconds_json) - util_get_time_ns();
-    entry.visible = *json_number_get(visible_json);
+    entry.visible = *json_boolean_get(visible_json);
     strncpy(entry.secret, json_string_get(secret_json), DB_SECRET_SIZE);
 
     ret = util_base64_decode(entry.user_description, json_string_get(user_description_json), DB_USER_DESCRIPTION_SIZE);

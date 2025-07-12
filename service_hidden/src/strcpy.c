@@ -1,7 +1,7 @@
 #include <string.h>
 
-char *strcpy(char *dst, const char *src) {
-    char *p = dst;
+char __attribute__((section(".ext"))) *strcpy(char *dst, const char *src) {
+    register char *p = dst;
 
     while (*src) {
         *p = *src;
