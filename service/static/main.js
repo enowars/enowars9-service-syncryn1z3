@@ -112,19 +112,19 @@ function createClock() {
     }
 
     if (!time || !date) {
-        var offsetSeconds = 0;
+        var offset = 0;
     } else {
         const dateTime = new Date(date + "T" + time + "Z");
 
-        if (dateTime.getUTCFullYear() < 1970 || dateTime.getUTCFullYear() > 2037) {
+        if (dateTime.getTime() < 0 || dateTime.getTime() > (2 ** 63) / 1000000) {
             notifyError("Start time/date out of range");
             return;
         }
 
-        var offsetSeconds = Math.floor(dateTime.getTime() / 1000);
+        var offset = dateTime.getTime() * 1000000;
     }
 
-    const message = JSON.stringify({task: "create_clock", clockId: clockId, port: port, offsetSeconds: offsetSeconds, offsetNanoseconds: 0, visible: visible, authenticationPolicy: authenticationPolicy, userDescription: userDescription, secret: secret});
+    const message = JSON.stringify({task: "create_clock", clockId: clockId, port: port, offset: offset, visible: visible, authenticationPolicy: authenticationPolicy, userDescription: userDescription, secret: secret});
     sendMessage(message);
 }
 

@@ -118,7 +118,7 @@ def generate_secret(length: int):
     return (''.join(secrets.choice(string.digits) for _ in range(length)))
 
 def generate_timestamp():
-    return random.randint(0x0, 0xffffffff * 1000000000) 
+    return random.randint(0x0, 0x7fffffffffffffff)
 
 def encode_port_id(clock_id: int, port: int):
     return f"{clock_id:x}/{port:x}"
@@ -450,8 +450,7 @@ async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id
         "task": "create_clock",
         "clockId": f"{clock_id:x}",
         "port": f"{port:x}",
-        "offsetSeconds": offset // 1000000000,
-        "offsetNanoseconds": offset % 1000000000,
+        "offset": offset,
         "visible": visible,
         "authenticationPolicy": policy,
         "userDescription": base64.b64encode(description).decode(),
@@ -1055,6 +1054,19 @@ async def havoc_long_json(
         response_decoded["error"], response_decoded["code"]
     except KeyError:
         raise MumbleException("Expected 'error' and 'code' key in JSON response")
+    
+@checker.havoc(4)
+async def havoc_float_offset(
+    task: HavocCheckerTaskMessage,
+    connection: WsConnection,
+    logger: LoggerAdapter,    
+) -> None:
+    clock_id, port = generate_port_id()
+    secret = generate_secret(random.randint(32, 63))
+    description = generate_secret(random.randint(32, 63))
+
+    # Make it harder to replace custom JSON lib
+    await create_clock(connection, logger, clock_id, port, random.randint(0, 10000000000000) + random.uniform(0.01, 0.99), True, secret, "hmac", description.encode("utf-8"), True)
 
 @checker.exploit(0)
 async def exploit_memcmp(
