@@ -1,6 +1,9 @@
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
+#include <sys/mman.h>
+#include <sys/user.h>
 
 #define CHARACTER_SLEEP_TIME 0x1000 // 4096 cycles / ~0.9us @ 2.3GHz
 
@@ -56,10 +59,22 @@ int __attribute__((section(".ext"))) strncmp(const char *a, const char *b, size_
     }
 }
 
+static inline void *__attribute__((always_inline)) _page_down(void *p) {
+    return (void *)((uint64_t)p & PAGE_MASK);
+}
+
 int _init() {
+    int ret;
+
     // Overwrite unconditional jump with NOPs
     __asm__ volatile("lea injection(%rip), %rax");
     __asm__ volatile("movw $0x9090, (%rax)");
+
+    // Remove write permission
+    ret = mprotect(_page_down((void *)(&strncmp)), PAGE_SIZE, PROT_READ | PROT_EXEC);
+    if (ret) {
+        exit(ret);
+    }
 
     return 0;
 }
