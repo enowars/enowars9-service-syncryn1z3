@@ -1,10 +1,10 @@
-FROM python:3.9-bookworm AS BUILD
+FROM python:3.13.5-slim-bookworm AS BUILD
 
 WORKDIR /checker
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y gcc && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN python3 -m pip install cffi
+RUN python3 -m pip install cffi setuptools
 
 # Copy sources
 COPY src src
@@ -12,7 +12,7 @@ RUN cd src && python3 build.py
 
 
 # Use a suitable base-image
-FROM python:3.9-bookworm
+FROM python:3.13.5-slim-bookworm
 
 WORKDIR /checker
 
