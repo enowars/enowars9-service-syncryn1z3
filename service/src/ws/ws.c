@@ -23,26 +23,7 @@ static int ws_callback(struct lws *socket, enum lws_callback_reasons reason, voi
 
             // Only allow POST requests
             if (!lws_hdr_total_length(socket, WSI_TOKEN_POST_URI)) {
-                session->response.buffer = malloc(LWS_PRE + WS_MAX_PACKET_SIZE);
-                if (!session->response.buffer) {
-                    return -ENOMEM;
-                }
-
-                session->response.data = ((char *)session->response.buffer) + LWS_PRE;
-                char *head = session->response.data;
-                char *end = session->response.data + WS_MAX_PACKET_SIZE - 1;
-
-                ret = lws_add_http_common_headers(socket, HTTP_STATUS_METHOD_NOT_ALLOWED, "application/json", LWS_ILLEGAL_HTTP_CONTENT_LEN, &head, head + WS_MAX_PACKET_SIZE - 1);
-                if (ret < 0) {
-                    break;
-                }
-
-                ret = lws_finalize_write_http_header(session->socket, session->response.data, &head, end);
-                if (ret) {
-                    return ret;
-                }
-
-                lws_callback_on_writable(socket);
+                ret = lws_return_http_status(socket, HTTP_STATUS_METHOD_NOT_ALLOWED, "");
 
                 ret = -EINVAL;
 
@@ -55,7 +36,7 @@ static int ws_callback(struct lws *socket, enum lws_callback_reasons reason, voi
         case LWS_CALLBACK_HTTP_BODY: {
             short new_length = session->request.length + length;
 
-            if (!new_length > WS_MAX_PACKET_SIZE) {
+            if (new_length > WS_MAX_PACKET_SIZE) {
                 return -EMSGSIZE;
             }
 
@@ -77,6 +58,15 @@ static int ws_callback(struct lws *socket, enum lws_callback_reasons reason, voi
 
         case LWS_CALLBACK_HTTP_WRITEABLE: {
             ret = lws_write(socket, session->response.data, session->response.length, LWS_WRITE_HTTP_FINAL);
+            if (ret != session->response.length) {
+                return -1;
+            }
+
+            ret = lws_http_transaction_completed(socket);
+            if (ret) {
+                return ret;
+            }
+
             break;
         }
 
