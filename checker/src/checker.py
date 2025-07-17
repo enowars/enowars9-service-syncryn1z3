@@ -257,65 +257,72 @@ class WsConnection:
 
 @thread_singleton
 class WsClientPool:
-    MIN_USAGE = 50
-    MAX_USAGE = 100
+    class Host:
+        class Entry:
+            MIN_USAGE = 50
+            MAX_USAGE = 100
+
+            def __init__(self):
+                self.client: websockets.asyncio.client.ClientConnection
+                self.usage = random.randint(self.MIN_USAGE, self.MAX_USAGE)
+
+        def __init__(self):
+            self.entries: typing.List[WsClientPool.Host.Entry] = []
+            self.lock = asyncio.Lock()
 
     def __init__(self, logger: LoggerAdapter):
         self.logger = logger
-        self.clients: typing.Dict[str, list[tuple[websockets.asyncio.client.ClientConnection, int]]] = {}
+        self.hosts: typing.Dict[str, WsClientPool.Host] = {}
         self.lock = asyncio.Lock()
 
     @contextlib.asynccontextmanager
-    async def get_connection(self, host: str) -> typing.AsyncIterator[websockets.asyncio.client.ClientConnection]:
-        client = None
-
+    async def get_connection(self, hostname: str) -> typing.AsyncIterator[websockets.asyncio.client.ClientConnection]:
         async with self.lock:
             try:
-                host_clients = self.clients[host]
+                host = self.hosts[hostname]
             except KeyError:
-                host_clients = self.clients[host] = []
+                host = self.hosts[hostname] = self.Host()
                 
         try:
-            async with self.lock:
-                entry = host_clients[0]
-                host_clients.remove(entry)
-
-            client, usage = entry
+            async with host.lock:
+                entry = host.entries[0]
+                host.entries.remove(entry)
 
             # Flush the receive buffer
             while True:
                 try:
-                    await asyncio.wait_for(client.recv(), 0.1)
+                    await asyncio.wait_for(entry.client.recv(), 0.1)
                 except asyncio.TimeoutError:
                     break
         
-            await client.ping()
+            await entry.client.ping()
         except (IndexError, websockets.exceptions.ConnectionClosed):
+            entry = self.Host.Entry()
+
             try:
-                client = await websockets.asyncio.client.connect(f"ws://{host}:{HTTP_PORT}/ws/", open_timeout=5, ping_interval=20, ping_timeout=20, user_agent_header=fake_useragent.UserAgent().random)
+                # Too many connects will cause DOS
+                async with host.lock:
+                    entry.client = await websockets.asyncio.client.connect(f"ws://{hostname}:{HTTP_PORT}/ws/", open_timeout=5, ping_interval=20, ping_timeout=20, user_agent_header=fake_useragent.UserAgent().random)
             except TimeoutError:
                 raise OfflineException("Websocket connection timeout")
             except Exception as e:
                 self.logger.debug(f"Websocket connection failed: {e}")
                 raise OfflineException("Websocket connection failed")
             
-            self.logger.debug(f"Created websocket client to {host}")
-
-            usage = random.randint(self.MIN_USAGE, self.MAX_USAGE)
+            self.logger.debug(f"Created websocket client to {hostname}")
         else:
-            self.logger.debug(f"Reusing websocket client to {host}")
-        finally:
-            usage -= 1
-            entry = (client, usage)
+            self.logger.debug(f"Reusing websocket client to {hostname}")
+
+        entry.usage -= 1
 
         try:
-            yield client
+            yield entry.client
         finally:
-            if usage > 0:
+            if entry.usage > 0:
                 async with self.lock:
-                    host_clients += [entry]
+                    host.entries += [entry]
             else:
-                await client.close()
+                await entry.client.close()
 
 @checker.register_dependency
 @contextlib.asynccontextmanager
