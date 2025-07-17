@@ -5,12 +5,19 @@
 struct lws;
 struct ws_state;
 
-struct ws_message {
+struct ws_session {
     struct lws *socket;
 
-    char *data;
-    short length;
-    bool fragmented;
+    struct {
+        char *data;
+        short length;
+    } request;
+
+    struct {
+        char *buffer;
+        char *data;
+        short length;
+    } response;
 };
 
-int ws_handle_message(struct ws_state *state, struct ws_message *request);
+int ws_handle_message(struct ws_state *state, struct ws_session *session);

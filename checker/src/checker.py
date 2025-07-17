@@ -1,7 +1,5 @@
 import asyncio
-import threading
-import websockets.asyncio.client
-import websockets.exceptions
+import httpx
 import typing
 import contextlib
 import random
@@ -54,24 +52,6 @@ GENERAL_PORT = 320
 HTTP_PORT = 1588
 checker = Enochecker("syncryn1z3", HTTP_PORT)
 app = lambda: checker.app
-
-
-"""
-Utility annotations
-"""
-
-thread_local = threading.local()
-
-def thread_singleton(c):
-    thread_local.instances = {}
-
-    def get_instance(*args, **kwargs):
-        if c not in thread_local.instances:
-            thread_local.instances[c] = c(*args, **kwargs)
-            
-        return thread_local.instances[c]
-    
-    return get_instance
 
 
 """
@@ -230,100 +210,6 @@ class UdpConnection:
                 if i == retries - 1:
                     raise e
 
-class WsConnection:
-    def __init__(self, client: websockets.asyncio.client.ClientConnection, logger: LoggerAdapter):
-        self.client = client
-        self.logger = logger
-
-    async def send(self, message: str):
-        try:
-            await self.client.send(message)
-        except websockets.exceptions.ConnectionClosed:
-            raise OfflineException("Websocket connection closed")
-
-        self.logger.debug(f"Sent websocket message: {message}")
-
-    async def receive(self) -> str:        
-        try:
-            message = await asyncio.wait_for(self.client.recv(), 5)
-        except asyncio.TimeoutError:
-            raise OfflineException("Timeout waiting for websocket message")
-        except websockets.exceptions.ConnectionClosed:
-            raise OfflineException("Websocket connection closed")
-        
-        self.logger.debug(f"Received websocket message: {message}")
-        
-        return message
-
-@thread_singleton
-class WsClientPool:
-    class Host:
-        class Entry:
-            MIN_USAGE = 50
-            MAX_USAGE = 100
-
-            def __init__(self):
-                self.client: websockets.asyncio.client.ClientConnection
-                self.usage = random.randint(self.MIN_USAGE, self.MAX_USAGE)
-
-        def __init__(self):
-            self.entries: typing.List[WsClientPool.Host.Entry] = []
-            self.lock = asyncio.Lock()
-
-    def __init__(self, logger: LoggerAdapter):
-        self.logger = logger
-        self.hosts: typing.Dict[str, WsClientPool.Host] = {}
-        self.lock = asyncio.Lock()
-
-    @contextlib.asynccontextmanager
-    async def get_connection(self, hostname: str) -> typing.AsyncIterator[websockets.asyncio.client.ClientConnection]:
-        async with self.lock:
-            try:
-                host = self.hosts[hostname]
-            except KeyError:
-                host = self.hosts[hostname] = self.Host()
-                
-        try:
-            async with host.lock:
-                entry = host.entries[0]
-                host.entries.remove(entry)
-
-            # Flush the receive buffer
-            while True:
-                try:
-                    await asyncio.wait_for(entry.client.recv(), 0.1)
-                except asyncio.TimeoutError:
-                    break
-        
-            await entry.client.ping()
-        except (IndexError, websockets.exceptions.ConnectionClosed):
-            entry = self.Host.Entry()
-
-            try:
-                # Too many connects will cause DOS
-                async with host.lock:
-                    entry.client = await websockets.asyncio.client.connect(f"ws://{hostname}:{HTTP_PORT}/ws/", open_timeout=5, ping_interval=20, ping_timeout=20, user_agent_header=fake_useragent.UserAgent().random)
-            except TimeoutError:
-                raise OfflineException("Websocket connection timeout")
-            except Exception as e:
-                self.logger.debug(f"Websocket connection failed: {e}")
-                raise OfflineException("Websocket connection failed")
-            
-            self.logger.debug(f"Created websocket client to {hostname}")
-        else:
-            self.logger.debug(f"Reusing websocket client to {hostname}")
-
-        entry.usage -= 1
-
-        try:
-            yield entry.client
-        finally:
-            if entry.usage > 0:
-                async with self.lock:
-                    host.entries += [entry]
-            else:
-                await entry.client.close()
-
 @checker.register_dependency
 @contextlib.asynccontextmanager
 async def _get_async_udp_protocol(logger: LoggerAdapter) -> typing.AsyncIterator[UdpClientProtocol]:
@@ -343,15 +229,41 @@ async def _get_async_udp_protocol(logger: LoggerAdapter) -> typing.AsyncIterator
 def _get_udp_connection(task: BaseCheckerTaskMessage, protocol: typing.AsyncIterator[UdpClientProtocol], logger: LoggerAdapter) -> UdpConnection:
     return UdpConnection(task.address, protocol, logger)
 
-@checker.register_dependency
-async def _get_ws_client(task: BaseCheckerTaskMessage, logger: LoggerAdapter) -> typing.AsyncIterator[websockets.asyncio.client.ClientConnection]:
-    ws_pool = WsClientPool(logger)
+class HttpConnection:
+    def __init__(self, remote_address, client: httpx.AsyncClient, logger: LoggerAdapter):
+        self.remote_address = remote_address
+        self.client = client
+        self.logger = logger
 
-    return ws_pool.get_connection(task.address)
+    async def post(self, request):
+        self.logger.debug(f"Sent POST to {(self.remote_address)}: {request}")
+
+        try:
+            response = await self.client.post("/api", content=request, headers={"User-Agent": fake_useragent.UserAgent().random})
+            response.raise_for_status()
+
+            return response.text
+        except httpx.HTTPError as e:
+            self.logger.debug(f"HTTP connection error: {e}")
+            raise OfflineException(f"HTTP connection error")
+        
+    async def receive(self):
+        try:
+            response, address = await asyncio.wait_for(self.protocol.queue.get(), 4.0)
+        except asyncio.TimeoutError:
+            raise OfflineException("Timeout waiting for UDP response")
+        
+        self.logger.debug(f"Received message from {address}")
+        
+        if (len(response) + 42) % 16 != 0:
+            self.logger.debug(f"Received message length: {len(response)}")
+            raise MumbleException("Invalid message length of response")
+
+        return response
 
 @checker.register_dependency
-def _get_ws_connection(client: typing.AsyncIterator[websockets.asyncio.client.ClientConnection], logger: LoggerAdapter) -> WsConnection:
-    return WsConnection(client, logger)
+def _get_http_connection(task: BaseCheckerTaskMessage, client: httpx.AsyncClient, logger: LoggerAdapter) -> HttpConnection:
+    return HttpConnection(task.address, client, logger)
 
 """
 Message functions
@@ -436,7 +348,7 @@ def pointer_to_bytes(pointer, length):
 Functionality functions
 """
 
-async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id: int, port: int, offset: int, visible: bool, secret: str, policy: str, description: bytes, expect_error=False):
+async def create_clock(connection: HttpConnection, logger: LoggerAdapter, clock_id: int, port: int, offset: int, visible: bool, secret: str, policy: str, description: bytes, expect_error=False):
     request = json.dumps({
         "task": "create_clock",
         "clockId": f"{clock_id:x}",
@@ -447,8 +359,7 @@ async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id
         "userDescription": base64.b64encode(description).decode(),
         "secret": secret})
     
-    await connection.send(request)
-    response = await connection.receive()
+    response = await connection.post(request)
 
     try:
         response_decoded = json.loads(response)
@@ -474,15 +385,14 @@ async def create_clock(connection: WsConnection, logger: LoggerAdapter, clock_id
         except KeyError:
             raise MumbleException("Expected 'task' key in JSON response")
 
-async def inspect_clock(connection: WsConnection, logger: LoggerAdapter, clock_id: int, port: int, secret: str, expect_error=False):
+async def inspect_clock(connection: HttpConnection, logger: LoggerAdapter, clock_id: int, port: int, secret: str, expect_error=False):
     request = json.dumps({
         "task": "inspect_clock",
         "clockId": f"{clock_id:x}",
         "port": f"{port:x}",
         "secret": secret})
     
-    await connection.send(request)
-    response = await connection.receive()
+    response = await connection.post(request)
 
     try:
         response_decoded = json.loads(response)
@@ -679,7 +589,7 @@ Checker functions
 async def putflag_visible(
     task: PutflagCheckerTaskMessage,
     db: ChainDB,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,
 ) -> None:
     clock_id, port = generate_port_id(range(2, 256)) # We require at least one cache entry in front for buffer overflow
@@ -708,7 +618,7 @@ async def putflag_visible(
 async def putflag_hmac(
     task: PutflagCheckerTaskMessage,
     db: ChainDB,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     description = encode_flag(task.flag, logger)
@@ -728,7 +638,7 @@ async def putflag_hmac(
 async def putflag_plain(
     task: PutflagCheckerTaskMessage,
     db: ChainDB,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     description = encode_flag(task.flag, logger)
@@ -748,7 +658,7 @@ async def putflag_plain(
 async def getflag_visible(
     task: GetflagCheckerTaskMessage,
     db: ChainDB,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     try:
@@ -805,7 +715,7 @@ async def getflag_plain(
 async def putnoise_sync(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
@@ -819,7 +729,7 @@ async def putnoise_sync(
 async def putnoise_time(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
@@ -835,7 +745,7 @@ async def putnoise_time(
 async def putnoise_user_description_twice(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
@@ -853,7 +763,7 @@ async def putnoise_user_description_twice(
 async def putnoise_none(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
@@ -868,7 +778,7 @@ async def putnoise_none(
 async def putnoise_hmac(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
@@ -934,7 +844,7 @@ async def getnoise_user_description_twice(
 async def getnoise_none(
     task: GetnoiseCheckerTaskMessage,
     db: ChainDB,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     try:
@@ -987,7 +897,7 @@ async def havoc_malformed_port_id(
 @checker.havoc(1)
 async def havoc_long_description(
     task: HavocCheckerTaskMessage,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
@@ -1032,11 +942,10 @@ async def havoc_many_tlvs(
 @checker.havoc(3)
 async def havoc_long_json(
     task: HavocCheckerTaskMessage,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
-    await connection.send("{\"\":" * 1024)
-    response = await connection.receive()
+    response = await connection.post("{\"\":" * 1024)
 
     try:
         response_decoded = json.loads(response)
@@ -1051,7 +960,7 @@ async def havoc_long_json(
 @checker.havoc(4)
 async def havoc_float_offset(
     task: HavocCheckerTaskMessage,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger: LoggerAdapter,    
 ) -> None:
     clock_id, port = generate_port_id()
@@ -1065,7 +974,7 @@ async def havoc_float_offset(
 async def exploit_memcmp(
     task: ExploitCheckerTaskMessage,
     searcher: FlagSearcher,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger:LoggerAdapter
 ) -> typing.Optional[str]:
     if task.attack_info is None:
@@ -1083,9 +992,7 @@ async def exploit_memcmp(
                 "port": f"{port:x}",
                 "secret": secret})
     
-            await connection.send(request)
-            response = await connection.receive()
-
+            response = await connection.post(request)
             response_decoded = json.loads(response)
 
             if "userDescription" in response_decoded:
@@ -1107,7 +1014,7 @@ async def exploit_memcmp(
 async def exploit_buffer_overflow(
     task: ExploitCheckerTaskMessage,
     searcher: FlagSearcher,
-    connection: WsConnection,
+    connection: HttpConnection,
     logger:LoggerAdapter
 ) -> typing.Optional[str]:
     if task.attack_info is None:

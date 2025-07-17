@@ -1,5 +1,3 @@
-let ws;
-
 function pad(number, length) {
     number = number.toString();
 
@@ -234,40 +232,15 @@ function handleResponse(response) {
     }
 }
 
-function openConnection(openAction) {
-    if (ws) {
-        return
-    }
-
-    ws = new WebSocket("/ws/", "syncryn1z3");
-    
-    if (openAction) {
-        ws.onopen = openAction;
-    }
-
-    ws.onmessage = (event) => {
-        handleResponse(JSON.parse(event.data));
-    };
-
-    ws.onerror = (error) => {
-        console.error("WebSocket error:", error);
-    };
-
-    ws.onclose = () => {
-        ws = null;
-    };
-}
-
 function sendMessage(message) {
-    send = () => {
-        ws.send(message);
-    };
-
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        send();
-    } else {
-        openConnection(send);
-    }
+    fetch("/api", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: message
+    })
+    .then(res => res.json())
+    .then(handleResponse)
+    .catch(err => notifyError("Error communicating with server: " + err));
 }
 
 function updateClocks() {
@@ -309,7 +282,7 @@ function updateSecret(event) {
 }
 
 window.onload = () => {
-    openConnection(getClocks());
+    getClocks();
 
     setInterval(updateClocks, 1000);
 };
