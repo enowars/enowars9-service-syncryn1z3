@@ -243,9 +243,18 @@ class HttpConnection:
             response.raise_for_status()
 
             return response.text
+        except httpx.ConnectError:
+            raise OfflineException(f"HTTP connect error")
+        except httpx.ConnectTimeout as e:
+            raise OfflineException(f"HTTP connect timeout")
+        except httpx.TimeoutException as e:
+            raise OfflineException(f"HTTP timeout")
+        except httpx.NetworkError as e:
+            raise OfflineException(f"HTTP network error")
+        except httpx.TransportError as e:
+            raise OfflineException(f"HTTP transport error")
         except httpx.HTTPError as e:
-            self.logger.debug(f"HTTP connection error: {e}")
-            raise OfflineException(f"HTTP connection error")
+            raise MumbleException(f"HTTP error")
 
 @checker.register_dependency
 def _get_http_connection(task: BaseCheckerTaskMessage, client: httpx.AsyncClient, logger: LoggerAdapter) -> HttpConnection:
