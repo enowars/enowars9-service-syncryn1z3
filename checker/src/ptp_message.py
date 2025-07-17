@@ -23,13 +23,13 @@ class PtpMessage:
         return tlv
 
     def encode(self, buffer_size):
-        buffer = ptp_protocol.ffi.new("uint8_t [{}]".format(buffer_size))
+        pointer = ptp_protocol.ffi.new(f"uint8_t [{buffer_size}]")
         
-        ret = ptp_protocol.lib.ptp_encode_message(buffer, self.decoded, buffer_size)
+        ret = ptp_protocol.lib.ptp_encode_message(pointer, self.decoded, buffer_size)
         if (ret < 0):
             raise InternalErrorException(f"Failed to encode PTP message: {os.strerror(-ret)}")
         
-        return ptp_protocol.ffi.buffer(buffer, ret)[:]
+        return ptp_protocol.ffi.buffer(pointer, ret)[:], pointer
     
 def from_parameters(type, clock_id, port, sequence_id):
     message = PtpMessage()
@@ -45,12 +45,17 @@ def from_parameters(type, clock_id, port, sequence_id):
 
     return message
 
-def from_buffer(buffer: bytes):
+def from_pointer(pointer, length):
     message = PtpMessage()
     message.decoded = ptp_protocol.ffi.new("struct ptp_decoded_message *")
 
-    ret = ptp_protocol.lib.ptp_decode_message(message.decoded, buffer, len(buffer))
+    ret = ptp_protocol.lib.ptp_decode_message(message.decoded, pointer, length)
     if (ret < 0):
         raise MumbleException(f"Failed to decode PTP message: {os.strerror(-ret)}")
     
     return message
+
+def from_buffer(buffer: bytes):
+    pointer = ptp_protocol.ffi.new(f"uint8_t[{len(buffer)}]", buffer)
+    
+    return from_pointer(pointer, len(buffer)), pointer

@@ -1,7 +1,8 @@
 import multiprocessing
 
-worker_class = "uvicorn.workers.UvicornWorker"
-workers = max(1, multiprocessing.cpu_count() - 1)
+worker_class = "uvicorn_worker.UvicornH11Worker"
+workers = multiprocessing.cpu_count() 
+threads = 2
 bind = "0.0.0.0:8000"
 timeout = 90
 keepalive = 3600

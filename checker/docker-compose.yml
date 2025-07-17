@@ -9,15 +9,8 @@ services:
       - MONGO_PORT=27017
       - MONGO_USER=syncryn1z3
       - MONGO_PASSWORD=syncryn1z3
-    mem_limit: 2G
-    memswap_limit: 2G
-    ulimits:
-      core:
-        soft: 0
-        hard: 0
-      nproc:
-        soft: 4000
-        hard: 4000
+    mem_limit: 4G
+    memswap_limit: 4G
     restart: unless-stopped
         
   # The python checkerlib requires a mongo db!

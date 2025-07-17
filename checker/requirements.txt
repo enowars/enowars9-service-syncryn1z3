@@ -1,7 +1,7 @@
 enochecker3==0.8.1
 numpy>=2
 websockets>=15
-uvicorn
+uvicorn_worker>=0.3.0
 gunicorn
 faker
 cffi
