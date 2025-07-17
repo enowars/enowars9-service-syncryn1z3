@@ -4,13 +4,13 @@
 
 #include <libwebsockets.h>
 
-#include <ws/ws.h>
-#include <ws/tasks/ws_tasks.h>
+#include <http/http.h>
+#include <http/tasks/http_tasks.h>
 
-static int ws_callback(struct lws *socket, enum lws_callback_reasons reason, void *user, void *data, size_t length) {
+static int http_callback(struct lws *socket, enum lws_callback_reasons reason, void *user, void *data, size_t length) {
     int ret = 0;
-    struct ws_state *state = (struct ws_state *)lws_context_user(lws_get_context(socket));
-    struct ws_session *session = (struct ws_session *)user;
+    struct http_state *state = (struct http_state *)lws_context_user(lws_get_context(socket));
+    struct http_session *session = (struct http_session *)user;
 
     switch (reason) {
         case LWS_CALLBACK_HTTP: {
@@ -36,7 +36,7 @@ static int ws_callback(struct lws *socket, enum lws_callback_reasons reason, voi
         case LWS_CALLBACK_HTTP_BODY: {
             short new_length = session->request.length + length;
 
-            if (new_length > WS_MAX_PACKET_SIZE) {
+            if (new_length > HTTP_MAX_PACKET_SIZE) {
                 return -EMSGSIZE;
             }
 
@@ -52,7 +52,7 @@ static int ws_callback(struct lws *socket, enum lws_callback_reasons reason, voi
         }
 
         case LWS_CALLBACK_HTTP_BODY_COMPLETION: {
-            ret = ws_handle_message(state, session);
+            ret = http_handle_message(state, session);
             break;
         }
 
@@ -87,14 +87,14 @@ static int ws_callback(struct lws *socket, enum lws_callback_reasons reason, voi
 static struct lws_protocols protocols[] = {
     {
         .name = "http",
-        .callback = ws_callback,
-        .per_session_data_size = sizeof(struct ws_session),
-        .rx_buffer_size = WS_MAX_PACKET_SIZE,
+        .callback = http_callback,
+        .per_session_data_size = sizeof(struct http_session),
+        .rx_buffer_size = HTTP_MAX_PACKET_SIZE,
     },
     {NULL, NULL, 0, 0} // Terminator
 };
 
-int ws_setup(struct ws_state *state, struct ws_config *config) {
+int http_setup(struct http_state *state, struct http_config *config) {
     struct lws_context_creation_info info;
     struct lws_context *context;
 
@@ -117,7 +117,7 @@ int ws_setup(struct ws_state *state, struct ws_config *config) {
     return 0;
 }
 
-int ws_cleanup(struct ws_state *state) {
+int http_cleanup(struct http_state *state) {
     lws_context_destroy(state->context);
 
     return 0;

@@ -11,7 +11,7 @@ add_executable(syncryn1z3 ${SOURCES} ${HEADERS})
 
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
-target_link_libraries(syncryn1z3 PRIVATE db ptp udp ws)
+target_link_libraries(syncryn1z3 PRIVATE db ptp udp http)
 
 target_include_directories(syncryn1z3 PUBLIC ${LIBUV_INCLUDE_DIRS})
 target_link_libraries(syncryn1z3 PRIVATE ${LIBUV_LIBRARIES})
@@ -19,4 +19,4 @@ target_link_libraries(syncryn1z3 PRIVATE ${LIBUV_LIBRARIES})
 add_subdirectory(db)
 add_subdirectory(ptp)
 add_subdirectory(udp)
-add_subdirectory(ws)
+add_subdirectory(http)

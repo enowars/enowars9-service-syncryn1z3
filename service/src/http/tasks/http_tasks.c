@@ -10,27 +10,27 @@
 
 #include <db/db.h>
 #include <ptp/protocol/ptp_constants.h>
-#include <ws/ws.h>
-#include <ws/tasks/ws_tasks.h>
+#include <http/http.h>
+#include <http/tasks/http_tasks.h>
 #include <util/error.h>
 #include <util/time.h>
 #include <util/base64.h>
 
-#define WS_MAX_PAGE_SIZE 16
+#define HTTP_MAX_PAGE_SIZE 16
 #define HTTP_MAX_HEADER_SIZE 1028 
 
-static int ws_send_response(struct ws_session *session, struct json_value *response_json) {
+static int http_send_response(struct http_session *session, struct json_value *response_json) {
     int ret;
 
-    char json_buffer[WS_MAX_PACKET_SIZE];
+    char json_buffer[HTTP_MAX_PACKET_SIZE];
 
-    ret = json_serialize(response_json, json_buffer, WS_MAX_PACKET_SIZE);
+    ret = json_serialize(response_json, json_buffer, HTTP_MAX_PACKET_SIZE);
     if (ret) {
         fprintf(stderr, "Failed to serialize JSON response\n");
         return ret;
     }
 
-    session->response.length = strnlen(json_buffer, WS_MAX_PACKET_SIZE);
+    session->response.length = strnlen(json_buffer, HTTP_MAX_PACKET_SIZE);
 
     session->response.buffer = malloc(LWS_PRE + HTTP_MAX_HEADER_SIZE + session->response.length);
     if (!session->response.buffer) {
@@ -59,7 +59,7 @@ static int ws_send_response(struct ws_session *session, struct json_value *respo
     return 0;
 }
 
-static int ws_send_error_va(struct ws_session *session, int code, const char *format, va_list va_args) {
+static int http_send_error_va(struct http_session *session, int code, const char *format, va_list va_args) {
     int ret;
     char message[1024];
 
@@ -73,35 +73,35 @@ static int ws_send_error_va(struct ws_session *session, int code, const char *fo
     json_object_push(response_json, "error", json_create_string(message));
     json_object_push(response_json, "code", json_create_number(util_error_int(code)));
 
-    ret = ws_send_response(session, response_json);
+    ret = http_send_response(session, response_json);
 
     json_free(response_json);
     
     return ret;
 }
 
-static inline int ws_send_error(struct ws_session *session, int code, const char *format, ...) {
+static inline int http_send_error(struct http_session *session, int code, const char *format, ...) {
     va_list va_args;
     va_start(va_args, format);
 
-    return ws_send_error_va(session, code, format, va_args); 
+    return http_send_error_va(session, code, format, va_args); 
 }
 
-static int ws_handle_task_get_clocks(struct ws_state *state, struct ws_session *session, struct json_value *request_json) {   
+static int http_handle_task_get_clocks(struct http_state *state, struct http_session *session, struct json_value *request_json) {   
     int ret;
-    struct db_entry *entries[WS_MAX_PAGE_SIZE];
+    struct db_entry *entries[HTTP_MAX_PAGE_SIZE];
 
     struct json_value *length_json = json_object_get(request_json, "length");
 
     if (!json_number_get(length_json)) {
-        return ws_send_error(session, EINVAL, "Missing value");
+        return http_send_error(session, EINVAL, "Missing value");
     }
 
-    const short length = *json_number_get(length_json) >= 1 ? (*json_number_get(length_json) <= WS_MAX_PAGE_SIZE ? *json_number_get(length_json) : WS_MAX_PAGE_SIZE) : 1;
+    const short length = *json_number_get(length_json) >= 1 ? (*json_number_get(length_json) <= HTTP_MAX_PAGE_SIZE ? *json_number_get(length_json) : HTTP_MAX_PAGE_SIZE) : 1;
 
     ret = db_get_recent(state->config->db_state, entries, length);
     if (ret) {
-        return ws_send_error(session, ret, "Failed to get clocks from database");
+        return http_send_error(session, ret, "Failed to get clocks from database");
     }
 
     struct json_value *response_json = json_create_object();
@@ -134,14 +134,14 @@ static int ws_handle_task_get_clocks(struct ws_state *state, struct ws_session *
 
     json_object_push(response_json, "ports", ports_json);  
 
-    ret = ws_send_response(session, response_json);
+    ret = http_send_response(session, response_json);
 
     json_free(response_json);
     
     return ret;
 }
 
-static int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_session *session, struct json_value *request_json) {   
+static int http_handle_task_inspect_clock(struct http_state *state, struct http_session *session, struct json_value *request_json) {   
     int ret;
     struct db_entry *entry;
 
@@ -150,7 +150,7 @@ static int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_sessio
     struct json_value *secret_json = json_object_get(request_json, "secret");
 
     if (!json_string_get(clock_id_json) || !json_string_get(port_json) || !json_string_get(secret_json)) {
-        return ws_send_error(session, EINVAL, "Missing value");
+        return http_send_error(session, EINVAL, "Missing value");
     }
 
     struct ptp_decoded_port_id port_id;
@@ -159,17 +159,17 @@ static int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_sessio
 
     ret = db_get(state->config->db_state, &entry, port_id);
     if (ret) {
-        return ws_send_error(session, ret, "Failed to get clock from database");
+        return http_send_error(session, ret, "Failed to get clock from database");
     }
 
     if (!entry->visible) {
-        return ws_send_error(session, ret, "Invisible clock");
+        return http_send_error(session, ret, "Invisible clock");
     }
 
     if (entry->authentication_policy != PTP_AUTHENTICATION_POLICY_NONE) {
         ret = strncmp(entry->secret, json_string_get(secret_json), DB_SECRET_SIZE);
         if (ret) {
-            return ws_send_error(session, ret, "Wrong secret");
+            return http_send_error(session, ret, "Wrong secret");
         }
     }
 
@@ -209,7 +209,7 @@ static int ws_handle_task_inspect_clock(struct ws_state *state, struct ws_sessio
 
     json_object_push(response_json, "userDescription", json_create_string(user_description_base64));
 
-    ret = ws_send_response(session, response_json);
+    ret = http_send_response(session, response_json);
 
 out:
     json_free(response_json);
@@ -217,9 +217,9 @@ out:
     return ret;
 }
 
-static int ws_handle_task_create_clock(struct ws_state *state, struct ws_session *session, struct json_value *request_json) {   
+static int http_handle_task_create_clock(struct http_state *state, struct http_session *session, struct json_value *request_json) {   
     int ret;
-    struct db_entry *entries[WS_MAX_PAGE_SIZE];
+    struct db_entry *entries[HTTP_MAX_PAGE_SIZE];
 
     struct json_value *clock_id_json = json_object_get(request_json, "clockId");
     struct json_value *port_json = json_object_get(request_json, "port");
@@ -230,7 +230,7 @@ static int ws_handle_task_create_clock(struct ws_state *state, struct ws_session
     struct json_value *user_description_json = json_object_get(request_json, "userDescription");
 
     if (!json_string_get(clock_id_json) || !json_string_get(port_json) || !json_number_get(offset_json) || !json_string_get(authentication_policy_json) || !json_boolean_get(visible_json) || !json_string_get(secret_json) || !json_string_get(user_description_json)) {
-        return ws_send_error(session, EINVAL, "Missing value");
+        return http_send_error(session, EINVAL, "Missing value");
     }
 
     struct db_entry entry;
@@ -242,7 +242,7 @@ static int ws_handle_task_create_clock(struct ws_state *state, struct ws_session
 
     ret = util_base64_decode(entry.user_description, json_string_get(user_description_json), DB_USER_DESCRIPTION_SIZE);
     if (ret < 0) {
-        return ws_send_error(session, ret, "Base64 decoding failed");
+        return http_send_error(session, ret, "Base64 decoding failed");
     }
 
     entry.user_description_length = ret;
@@ -254,61 +254,61 @@ static int ws_handle_task_create_clock(struct ws_state *state, struct ws_session
     } else if (!strcmp(json_string_get(authentication_policy_json), "hmac")) {
         entry.authentication_policy = PTP_AUTHENTICATION_POLICY_HMAC_128;
     } else {
-        return ws_send_error(session, EINVAL, "Invalid authentication policy");
+        return http_send_error(session, EINVAL, "Invalid authentication policy");
     }
 
     ret = db_set(state->config->db_state, &entry);
     if (ret) {
-        return ws_send_error(session, ret, "Failed to create clock in database");
+        return http_send_error(session, ret, "Failed to create clock in database");
     }
 
     struct json_value *response_json = json_create_object();
     
     json_object_push(response_json, "task", json_create_string("create_clock"));
 
-    ret = ws_send_response(session, response_json);
+    ret = http_send_response(session, response_json);
     
     json_free(response_json);
     
     return ret;
 }
 
-static int ws_handle_task(struct ws_state *state, struct ws_session *session, struct json_value *request_json) {   
+static int http_handle_task(struct http_state *state, struct http_session *session, struct json_value *request_json) {   
     int ret;
 
     struct json_value *task_json = json_object_get(request_json, "task");
     
     if (!json_string_get(task_json)) {
-        return ws_send_error(session, EINVAL, "Missing task string");
+        return http_send_error(session, EINVAL, "Missing task string");
     }
 
     if (!strcmp(json_string_get(task_json), "get_clocks")) {
-        ret = ws_handle_task_get_clocks(state, session, request_json);
+        ret = http_handle_task_get_clocks(state, session, request_json);
     } else if (!strcmp(json_string_get(task_json), "inspect_clock")) {
-        ret = ws_handle_task_inspect_clock(state, session, request_json);
+        ret = http_handle_task_inspect_clock(state, session, request_json);
     } else if (!strcmp(json_string_get(task_json), "create_clock")) {
-        ret = ws_handle_task_create_clock(state, session, request_json);
+        ret = http_handle_task_create_clock(state, session, request_json);
     } else {
-        return ws_send_error(session, EINVAL, "Invalid task");
+        return http_send_error(session, EINVAL, "Invalid task");
     }
 
     if (ret) {
-        return ws_send_error(session, util_error_int(ret), "General error");
+        return http_send_error(session, util_error_int(ret), "General error");
     }
 
     return 0;
 }
 
-int ws_handle_message(struct ws_state *state, struct ws_session *session) {   
+int http_handle_message(struct http_state *state, struct http_session *session) {   
     int ret;
     struct json_value *request_json;
     
     request_json = json_parse(session->request.data, session->request.length);
     if (!request_json) {
-        return ws_send_error(session, EINVAL, "JSON parse error");
+        return http_send_error(session, EINVAL, "JSON parse error");
     }
 
-    ret = ws_handle_task(state, session, request_json);
+    ret = http_handle_task(state, session, request_json);
 
     json_free(request_json);
 

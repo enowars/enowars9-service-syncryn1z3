@@ -3,9 +3,9 @@
 #include <stdbool.h>
 
 struct lws;
-struct ws_state;
+struct http_state;
 
-struct ws_session {
+struct http_session {
     struct lws *socket;
 
     struct {
@@ -20,4 +20,4 @@ struct ws_session {
     } response;
 };
 
-int ws_handle_message(struct ws_state *state, struct ws_session *session);
+int http_handle_message(struct http_state *state, struct http_session *session);

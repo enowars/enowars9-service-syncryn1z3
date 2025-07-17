@@ -7,14 +7,14 @@
 #include <ptp/ptp_defaults.h>
 #include <db/db.h>
 #include <udp/udp.h>
-#include <ws/ws.h>
+#include <http/http.h>
 #include <util/error.h>
 
 struct main_config {
     struct db_config db;
     struct ptp_config ptp;
     struct udp_config socket;
-    struct ws_config ws;
+    struct http_config http;
 };
 
 struct main_state {
@@ -23,7 +23,7 @@ struct main_state {
     struct db_state db;
     struct ptp_state ptp;
     struct udp_state socket;
-    struct ws_state ws;
+    struct http_state http;
 
     uv_loop_t *loop;
 };
@@ -62,9 +62,9 @@ int main(int argc, char *argv[]) {
     state.config.socket.dequeue_callback = ptp_dequeue_message;
     state.config.socket.user_ptr = &state.ptp;
 
-    state.config.ws.db_state = &state.db;
-    state.config.ws.loop = state.loop;
-    state.config.ws.port = 8080;
+    state.config.http.db_state = &state.db;
+    state.config.http.loop = state.loop;
+    state.config.http.port = 8080;
 
     printf("Starting PTP master\n");
 
@@ -83,7 +83,7 @@ int main(int argc, char *argv[]) {
         return util_error_int(ret);
     }
 
-    ret = ws_setup(&state.ws, &state.config.ws);
+    ret = http_setup(&state.http, &state.config.http);
     if (ret) {
         return util_error_int(ret);
     }
@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
 
     printf("Shutting down...\n");
 
-    ret = ws_cleanup(&state.ws);
+    ret = http_cleanup(&state.http);
     if (ret) {
         return util_error_int(ret);
     }
