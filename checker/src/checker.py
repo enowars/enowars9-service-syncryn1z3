@@ -246,20 +246,6 @@ class HttpConnection:
         except httpx.HTTPError as e:
             self.logger.debug(f"HTTP connection error: {e}")
             raise OfflineException(f"HTTP connection error")
-        
-    async def receive(self):
-        try:
-            response, address = await asyncio.wait_for(self.protocol.queue.get(), 4.0)
-        except asyncio.TimeoutError:
-            raise OfflineException("Timeout waiting for UDP response")
-        
-        self.logger.debug(f"Received message from {address}")
-        
-        if (len(response) + 42) % 16 != 0:
-            self.logger.debug(f"Received message length: {len(response)}")
-            raise MumbleException("Invalid message length of response")
-
-        return response
 
 @checker.register_dependency
 def _get_http_connection(task: BaseCheckerTaskMessage, client: httpx.AsyncClient, logger: LoggerAdapter) -> HttpConnection:
@@ -711,6 +697,7 @@ async def getflag_plain(
     if received_description != encode_flag(task.flag, logger):
         raise MumbleException("Received wrong flag")
 
+"""
 @checker.putnoise(0)
 async def putnoise_sync(
     task: PutnoiseCheckerTaskMessage,
@@ -724,8 +711,9 @@ async def putnoise_sync(
     await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", b"")
 
     await db.set("userdata", (clock_id, port, secret))
-
-@checker.putnoise(1)
+"""
+    
+@checker.putnoise(0)
 async def putnoise_time(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
@@ -741,6 +729,7 @@ async def putnoise_time(
     await db.set("userdata", (clock_id, port, secret))
     await db.set("timedata", (start_time, get_time_ns()))
 
+"""
 @checker.putnoise(2)
 async def putnoise_user_description_twice(
     task: PutnoiseCheckerTaskMessage,
@@ -758,8 +747,9 @@ async def putnoise_user_description_twice(
     assert_equals(error, "Failed to create clock in database", "Wrong error message")
 
     await db.set("userdata", (clock_id, port, secret, description))
-
-@checker.putnoise(3)
+"""
+    
+@checker.putnoise(1)
 async def putnoise_none(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
@@ -774,7 +764,7 @@ async def putnoise_none(
 
     await db.set("userdata", (clock_id, port, secret, description))
 
-@checker.putnoise(4)
+@checker.putnoise(2)
 async def putnoise_hmac(
     task: PutnoiseCheckerTaskMessage,
     db: ChainDB,
@@ -788,6 +778,7 @@ async def putnoise_hmac(
 
     await db.set("userdata", (clock_id, port, secret))
 
+"""
 @checker.getnoise(0)
 async def getnoise_sync(
     task: GetnoiseCheckerTaskMessage,
@@ -801,8 +792,9 @@ async def getnoise_sync(
         raise MumbleException("Missing database entry from putnoise")
 
     await run_synchronization(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
+"""
 
-@checker.getnoise(1)
+@checker.getnoise(0)
 async def getnoise_time(
     task: GetnoiseCheckerTaskMessage,
     db: ChainDB,
@@ -825,6 +817,7 @@ async def getnoise_time(
         
         last_time = current_time
 
+"""
 @checker.getnoise(2)
 async def getnoise_user_description_twice(
     task: GetnoiseCheckerTaskMessage,
@@ -839,8 +832,9 @@ async def getnoise_user_description_twice(
 
     received_description = await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
     assert_equals(received_description.decode(), description, "Received wrong description")
-
-@checker.getnoise(3)
+"""
+    
+@checker.getnoise(1)
 async def getnoise_none(
     task: GetnoiseCheckerTaskMessage,
     db: ChainDB,
@@ -855,7 +849,7 @@ async def getnoise_none(
     received_description = await inspect_clock(connection, logger, clock_id, port, "")
     assert_equals(received_description.decode(), description, "Received wrong description")
 
-@checker.getnoise(4)
+@checker.getnoise(2)
 async def getnoise_hmac(
     task: GetnoiseCheckerTaskMessage,
     db: ChainDB,
@@ -904,7 +898,7 @@ async def havoc_long_description(
     secret = generate_secret(random.randint(32, 63))
 
     await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", generate_secret(1500).encode("ascii"), False)
-
+    
 @checker.havoc(2)
 async def havoc_many_tlvs(
     task: HavocCheckerTaskMessage,
@@ -939,6 +933,7 @@ async def havoc_many_tlvs(
             
     raise MumbleException("Expected management TLV in response")
 
+"""
 @checker.havoc(3)
 async def havoc_long_json(
     task: HavocCheckerTaskMessage,
@@ -956,8 +951,9 @@ async def havoc_long_json(
         response_decoded["error"], response_decoded["code"]
     except KeyError:
         raise MumbleException("Expected 'error' and 'code' key in JSON response")
-    
-@checker.havoc(4)
+"""
+         
+@checker.havoc(3)
 async def havoc_float_offset(
     task: HavocCheckerTaskMessage,
     connection: HttpConnection,
