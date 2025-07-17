@@ -257,91 +257,65 @@ class WsConnection:
 
 @thread_singleton
 class WsClientPool:
-    CLEANUP_INTERVAL = 10
-    MIN_TIMEOUT = 300
-    MAX_TIMEOUT = 600
+    MIN_USAGE = 50
+    MAX_USAGE = 100
 
     def __init__(self, logger: LoggerAdapter):
         self.logger = logger
-        self.clients: typing.Dict[str, list[tuple[websockets.asyncio.client.ClientConnection, float, asyncio.Lock]]] = {}
+        self.clients: typing.Dict[str, list[tuple[websockets.asyncio.client.ClientConnection, int]]] = {}
         self.lock = asyncio.Lock()
-        self.cleanup_task = asyncio.create_task(self.cleanup())
 
     @contextlib.asynccontextmanager
     async def get_connection(self, host: str) -> typing.AsyncIterator[websockets.asyncio.client.ClientConnection]:
+        client = None
+
         async with self.lock:
-            client = None
-
-            now = time.time()
-
-            # Search for free client
-            if host in self.clients:
-                entry = next((entry for entry in self.clients[host] if not entry[1].locked()), None)
-
-                if entry is not None:
-                    client, lock, _ = entry
-
-                    if client.state != websockets.State.OPEN:
-                        async with lock:
-                            self.clients[host].remove(entry)
-                            self.logger.debug(f"Removed peer-closed websocket client for {host}")
-
-                        client = None
-                    else:
-                        try:
-                            # Flush the receive buffer
-                            while True:
-                                try:
-                                    await asyncio.wait_for(client.recv(), 0.1)
-                                except asyncio.TimeoutError:
-                                    break
-
-                            await client.ping()
-                        except websockets.exceptions.ConnectionClosed:
-                            client = None
-
-            # Create new client
-            if client is None:
-                try:
-                    client = await websockets.asyncio.client.connect(f"ws://{host}:{HTTP_PORT}/ws/", open_timeout=5, ping_interval=20, ping_timeout=20, user_agent_header=fake_useragent.UserAgent().random)
-                except TimeoutError:
-                    raise OfflineException("Websocket connection timeout")
-                except Exception as e:
-                    self.logger.debug(f"Websocket connection failed: {e}")
-                    raise OfflineException("Websocket connection failed")
+            try:
+                host_clients = self.clients[host]
+            except KeyError:
+                host_clients = self.clients[host] = []
                 
-                self.logger.debug(f"Created websocket client to {host}")
+        try:
+            async with self.lock:
+                entry = host_clients[0]
+                host_clients.remove(entry)
 
-                lock = asyncio.Lock()
-                timeout = now + random.randint(self.MIN_TIMEOUT, self.MAX_TIMEOUT)
+            client, usage = entry
 
+            # Flush the receive buffer
+            while True:
                 try:
-                    self.clients[host] += [(client, lock, timeout)]
-                except KeyError:
-                    self.clients[host] = [(client, lock, timeout)]
-            else:
-                self.logger.debug(f"Reusing websocket client to {host}")
+                    await asyncio.wait_for(client.recv(), 0.1)
+                except asyncio.TimeoutError:
+                    break
+        
+            await client.ping()
+        except (IndexError, websockets.exceptions.ConnectionClosed):
+            try:
+                client = await websockets.asyncio.client.connect(f"ws://{host}:{HTTP_PORT}/ws/", open_timeout=5, ping_interval=20, ping_timeout=20, user_agent_header=fake_useragent.UserAgent().random)
+            except TimeoutError:
+                raise OfflineException("Websocket connection timeout")
+            except Exception as e:
+                self.logger.debug(f"Websocket connection failed: {e}")
+                raise OfflineException("Websocket connection failed")
+            
+            self.logger.debug(f"Created websocket client to {host}")
 
-        await lock.acquire()
+            usage = random.randint(self.MIN_USAGE, self.MAX_USAGE)
+        else:
+            self.logger.debug(f"Reusing websocket client to {host}")
+        finally:
+            usage -= 1
+            entry = (client, usage)
 
         try:
             yield client
         finally:
-            lock.release()
-
-    async def cleanup(self):
-        while True:
-            await asyncio.sleep(self.CLEANUP_INTERVAL)
-
-            async with self.lock:
-                now = time.time()
-                for host in list(self.clients):
-                    for entry in self.clients[host][:]:
-                        client, lock, timeout = entry
-                        if now > timeout and not lock.locked():
-                            async with lock:
-                                await client.close()
-                                self.clients[host].remove(entry)
+            if usage > 0:
+                async with self.lock:
+                    host_clients += [entry]
+            else:
+                await client.close()
 
 @checker.register_dependency
 @contextlib.asynccontextmanager
