@@ -1,18 +1,18 @@
-FROM pypy:3.11-bookworm AS BUILD
+FROM python:3.13.5-slim-bookworm AS BUILD
 
 WORKDIR /checker
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y gcc && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN pypy3 -m pip install cffi setuptools
+RUN python3 -m pip install cffi setuptools
 
 # Copy sources
 COPY src src
-RUN cd src && pypy3 build.py
+RUN cd src && python3 build.py
 
 
 # Use a suitable base-image
-FROM pypy:3.11-bookworm
+FROM python:3.13.5-slim-bookworm
 
 WORKDIR /checker
 
@@ -25,7 +25,7 @@ RUN useradd -ms /bin/bash -u 1000 checker
 COPY requirements.txt .
 
 USER checker
-RUN pypy3 -m pip install -r requirements.txt
+RUN python3 -m pip install -r requirements.txt
 
 COPY src .
 COPY --from=build checker/src/*.so .

@@ -1,6 +1,6 @@
 import multiprocessing
 
-worker_class = "uvicorn_worker.UvicornH11Worker"
+worker_class = "uvicorn_worker.UvicornWorker"
 workers = multiprocessing.cpu_count()
 threads = 1
 bind = "0.0.0.0:8000"
