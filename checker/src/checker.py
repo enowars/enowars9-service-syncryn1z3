@@ -252,7 +252,7 @@ class HttpConnection:
         except httpx.NetworkError as e:
             raise OfflineException(f"HTTP network error")
         except httpx.TransportError as e:
-            raise OfflineException(f"HTTP transport error")
+            raise MumbleException(f"HTTP transport error")
         except httpx.HTTPError as e:
             raise MumbleException(f"HTTP error")
 
@@ -705,22 +705,6 @@ async def getflag_plain(
     
     if received_description != encode_flag(task.flag, logger):
         raise MumbleException("Received wrong flag")
-
-"""
-@checker.putnoise(0)
-async def putnoise_sync(
-    task: PutnoiseCheckerTaskMessage,
-    db: ChainDB,
-    connection: HttpConnection,
-    logger: LoggerAdapter,    
-) -> None:
-    clock_id, port = generate_port_id()
-    secret = generate_secret(random.randint(32, 63))
-
-    await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", b"")
-
-    await db.set("userdata", (clock_id, port, secret))
-"""
     
 @checker.putnoise(0)
 async def putnoise_time(
@@ -787,22 +771,6 @@ async def putnoise_hmac(
 
     await db.set("userdata", (clock_id, port, secret))
 
-"""
-@checker.getnoise(0)
-async def getnoise_sync(
-    task: GetnoiseCheckerTaskMessage,
-    db: ChainDB,
-    connection: UdpConnection,
-    logger: LoggerAdapter,    
-) -> None:
-    try:
-        clock_id, port, secret = await db.get("userdata")
-    except KeyError:
-        raise MumbleException("Missing database entry from putnoise")
-
-    await run_synchronization(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
-"""
-
 @checker.getnoise(0)
 async def getnoise_time(
     task: GetnoiseCheckerTaskMessage,
@@ -825,6 +793,8 @@ async def getnoise_time(
             raise MumbleException("Timejump detected")
         
         last_time = current_time
+
+    await run_synchronization(connection, logger, clock_id, port, secret.encode("ascii"), "hmac")
 
 """
 @checker.getnoise(2)
@@ -897,6 +867,7 @@ async def havoc_malformed_port_id(
 
     await get_user_description(connection, logger, clock_id, port, secret.encode("ascii"), "hmac", True)
 
+"""
 @checker.havoc(1)
 async def havoc_long_description(
     task: HavocCheckerTaskMessage,
@@ -907,8 +878,9 @@ async def havoc_long_description(
     secret = generate_secret(random.randint(32, 63))
 
     await create_clock(connection, logger, clock_id, port, generate_timestamp(), True, secret, "hmac", generate_secret(1500).encode("ascii"), False)
-    
-@checker.havoc(2)
+"""
+     
+@checker.havoc(1)
 async def havoc_many_tlvs(
     task: HavocCheckerTaskMessage,
     connection: UdpConnection,
@@ -962,7 +934,7 @@ async def havoc_long_json(
         raise MumbleException("Expected 'error' and 'code' key in JSON response")
 """
          
-@checker.havoc(3)
+@checker.havoc(2)
 async def havoc_float_offset(
     task: HavocCheckerTaskMessage,
     connection: HttpConnection,
