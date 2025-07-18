@@ -51,7 +51,7 @@ static int http_send_response(struct http_session *session, struct json_value *r
         return ret;
     }
 
-    strncpy(head, json_buffer, session->response.length);
+    memcpy(head, json_buffer, session->response.length);
     session->response.data = head;
 
     lws_callback_on_writable(session->socket);

@@ -4,13 +4,17 @@ services:
     ports:
       - 11588:8000
     environment:
+      #- NUM_CORES=4
       - MONGO_ENABLED=1
       - MONGO_HOST=syncryn1z3-mongo
       - MONGO_PORT=27017
       - MONGO_USER=syncryn1z3
       - MONGO_PASSWORD=syncryn1z3
-    mem_limit: 4G
-    memswap_limit: 4G
+    deploy:
+      resources:
+        limits:
+          #cpus: 4
+          memory: 4G
     restart: unless-stopped
         
   # The python checkerlib requires a mongo db!

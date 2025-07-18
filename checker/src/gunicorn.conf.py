@@ -1,8 +1,8 @@
+import os
 import multiprocessing
 
 worker_class = "uvicorn_worker.UvicornWorker"
-workers = multiprocessing.cpu_count()
-threads = 1
+workers = 2 * int(os.environ.get("NUM_CORES", multiprocessing.cpu_count()))
 bind = "0.0.0.0:8000"
 timeout = 90
 keepalive = 3600
