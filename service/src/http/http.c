@@ -71,8 +71,11 @@ static int http_callback(struct lws *socket, enum lws_callback_reasons reason, v
         }
 
         case LWS_CALLBACK_CLOSED_HTTP: {
-            free(session->request.data);
-            free(session->response.buffer);
+            if (session) {
+                free(session->request.data);
+                free(session->response.buffer);
+            }
+            
             break;
         }
 
