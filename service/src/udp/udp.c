@@ -67,7 +67,7 @@ static int udp_receive_message(struct udp_state *state, struct udp_instance *ins
     info->buffer.length = recvfrom(instance->fd, info->buffer.data, COMMON_BUFFER_SIZE, 0, (struct sockaddr *)&info->address.address, &info->address.length);
     if (info->buffer.length < 0) {
         perror("Failed to receive message");
-        free(info);
+        util_mempool_put(info);
         
         return -1;
     }

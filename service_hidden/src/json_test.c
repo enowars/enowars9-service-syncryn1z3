@@ -55,7 +55,7 @@ int test_parsing() {
             return -1;
         }
 
-        ret = json_serialize(val, buf, sizeof(buf));
+        ret = json_serialize(val, buf, strlen(*test_case) + 1);
         if (ret) {
             printf("Failed to serialize JSON: %s.\n", *test_case);
             return -1;

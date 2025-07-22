@@ -137,7 +137,7 @@ static char *_parse_string(const char **in, const char *end) {
 static int _serialize_string(const char *s, char **out, const char *end) {
     char *p = *out;
 
-    if (p >= end) {
+    if (p + 1 >= end) {
         return -1;
     }
 
@@ -498,6 +498,10 @@ static int _json_serialize_object(const struct json_value *v, char **out, char *
 
     char *p = *out;
 
+    if (p + 2 >= end) {
+        return -1;
+    }
+
     *p = '{';
     ++p;
 
@@ -507,12 +511,12 @@ static int _json_serialize_object(const struct json_value *v, char **out, char *
             return ret;
         }
 
-        *p = ':';
-        ++p;
-
         if (p + 1 >= end) {
             return -1;
         }
+
+        *p = ':';
+        ++p;
 
         ret = _json_serialize(v->object.pairs[i].value, &p, end);
         if (ret < 0) {
