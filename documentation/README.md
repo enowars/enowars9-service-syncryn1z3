@@ -1,16 +1,59 @@
 syncryn1z3 documentation
-======================
+========================
+
+## Table of Contents
+
+1. [Introduction](#introduction)
+   - [Idea](#idea)
+   - [Languages](#languages) 
+   - [Disclaimer](#disclaimer) 
+2. [Installation](#installation)
+3. [Features](#features)  
+   - [Web Interface](#web-interface)
+   - [Client App](#client-app)
+4. [Flagstores](#flagstores)
+5. [Vulnerabilities & Exploits](#vulnerabilities--exploits)  
+   - [Return value leak](#1-return-value-leak)
+   - [Buffer overflow](#2-buffer-overflow)
+   - [Integer signed conversion](#3-integer-signed-conversion)
+   - [Zero-length ICV](#4-zero-length-icv)
+   - [Timing of strncmp calls](#5-timing-of-strncmp-calls)
+6. [File Structure](#file-structure)
 
 ## Introduction
 
 ### Idea
 The service is a custom implementation of the [IEEE 1588](https://ieeexplore.ieee.org/document/9120376) standard. The standard defines the Precision Time Protocol (PTP), that allows for very accurate clock synchronization over the network. With proper hardware support this allows for synchronization within a few nanoseconds. However, as it is only software based, this implementation cannot claim to be this accurate. The main focus was is to showcase a weird authentication protocol used by PTP as well as the dangers of high-resolution timestamps in secure applications.
 
+The service is compliant with the standard whereever possible. Wireshark and tcpdump will correctly display and dissect the PTP messages sent out by the service.
+
 ### Languages
 All of the vulnerable code is written in C. But some parts are shipped as binary to be reversed by the players. Other languages include CMake for the build system, Python for the client app and HTML/CSS/JS for the web interface.
 
 ### Disclaimer
 The main network protocol used by this service is UDP. As UDP is a connectionless protocol, it will be more affected by an unrealiable network than TCP-based services. If you want to host this service, please ensure that packet loss will be minimal in your setup. To reduce the impact of packet loss on SLA, the checker is equipped with an automatic resend functionality.
+
+## Installation
+
+Clone the repository from GitHub.
+```bash
+git clone https://github.com/enowars/enowars9-service-syncryn1z3.git
+cd enowars9-service-syncryn1z3
+```
+
+### Service
+Run the service in a docker container.
+```bash
+cd checker
+docker compose up --build -d
+```
+
+### Checker
+Run the checker in a docker container.
+```bash
+cd checker
+docker compose up --build -d
+```
 
 ## Features
 
@@ -41,7 +84,7 @@ The web interface also allows for retrieval of info about a clock. When specifyi
 
 In order to make the web interface feel more alive, the most recently created clocks will be displayed on the "Recent Clocks" panel. It contains the ID and port of the clock as well as a rought time estimate. There is also a command-line string provided to allow for easy access to the clock via the client app.
 
-### Client app
+### Client App
 
 A Python/curses app is provided to showcase the clock synchronization. It also contains code snippets that make automating the exploits easier/feasible.
 
@@ -259,4 +302,40 @@ diff --git a/service/src/ptp/security/ptp_security.c b/service/src/ptp/security/
 +
  static inline int ptp_compute_icv_none(struct ptp_decoded_authentication_tlv *tlv) {
      tlv->icv[0] = '\0';
+```
+
+## File Structure
+Overview of the most important files/directories.
+
+### Service
+```
+service
+|── src
+|   ├── common                  # Common types
+|   ├── db                      # Interface to sqlite database / cache
+|   ├── http                    # HTTP endpoint
+|   |   └── tasks               # Web API message handling
+|   ├── ptp                     # PTP protocol implementation
+|   |   |── protocol            # PTP encoding/decoding functions
+|   |   |── security            # Authentication functions
+|   |   └── tasks               # PTP message handling
+|   ├── udp                     # UDP endpoint
+|   └── util                    # Various utilities
+|── lib
+|   ├── include                 # Headers
+|   └── libjson.so              # JSON encoding/decoding library (contains slow strncmp function)
+|── client                      # Python PTP client
+|── static                      # Statically served content for the web interface
+└── cleanup.py                  # Database cleanup script
+```
+
+### Checker
+```
+checker
+└── src
+    ├── checker.py              # Main checker code
+    ├── bf.py                   # Utilities for custom brainfuck encoding
+    ├── ptp_message.py          # Utilities for PTP message encoding/decoding
+    ├── build.py                # Build script to compile C-based encode/decode functions
+    └── protocol                # PTP encoding/decoding functions
 ```
