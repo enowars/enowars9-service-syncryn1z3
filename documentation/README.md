@@ -122,6 +122,7 @@ There exist three flagstores:
 
 ### 1. Return value leak
 #### Overview
+- Flagstore: #1
 - Difficulty: easy
 - Replayable: no
 
@@ -148,6 +149,7 @@ diff --git a/service/src/http/tasks/http_tasks.c b/service/src/http/tasks/http_t
 
 ### 2. Buffer overflow
 #### Overview
+- Flagstore: #1
 - Difficulty: medium
 - Replayable: no
 
@@ -191,6 +193,7 @@ diff --git a/service/src/db/db.c b/service/src/db/db.c
 
 ### 3. Integer signed conversion
 #### Overview
+- Flagstore: #2
 - Difficulty: medium
 - Replayable: no
 
@@ -233,6 +236,7 @@ diff --git a/service/src/ptp/protocol/ptp_decoding.c b/service/src/ptp/protocol/
 
 ### 4. Zero-length ICV
 #### Overview
+- Flagstore: #2
 - Difficulty: easy
 - Replayable: yes
 
@@ -261,6 +265,7 @@ diff --git a/service/src/ptp/security/ptp_security.c b/service/src/ptp/security/
 
 ### 5. Timing of strncmp calls
 #### Overview
+- Flagstore: #3
 - Difficulty: hard
 - Replayable: no
 
